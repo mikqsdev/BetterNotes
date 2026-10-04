@@ -2,7 +2,7 @@
 
 App iPadOS nativa (SwiftUI + PencilKit, iPadOS 26) per prendere appunti scolastici con Apple Pencil.
 
-## Avvio
+## Avvio 
 
 1. Apri `BetterNotes.xcodeproj` con Xcode 26.
 2. In *Signing & Capabilities* scegli il tuo Team (necessario per installarla su un iPad reale).

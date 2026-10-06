@@ -18,6 +18,9 @@ final class Note {
     var canvasWidth: Double = 0
     var canvasHeight: Double = 0
     var sourceFileName: String?
+    /// Ordine delle pagine: per ogni pagina l'indice della pagina PDF di sfondo (-1 = pagina vuota).
+    /// nil = ordine naturale.
+    var pageSourcesData: Data?
 
     @Attribute(.externalStorage) var drawingData: Data?
     @Attribute(.externalStorage) var attachmentsData: Data?
@@ -55,4 +58,8 @@ struct StoredImage: Codable {
     var width: Double
     var height: Double
     var data: Data
+    // Campi aggiunti in seguito: opzionali per leggere le note già salvate.
+    var rotation: Double?
+    var rounded: Bool?
+    var shadow: Bool?
 }

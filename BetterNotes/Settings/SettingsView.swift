@@ -18,6 +18,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.showPageNumbers) private var showPageNumbers = true
     @AppStorage(SettingsKey.iCloudSync) private var iCloudSync = false
     @AppStorage(SettingsKey.paletteX) private var paletteX = -1.0
+    @AppStorage(SettingsKey.paletteDock) private var paletteDock = PaletteDock.bottom.rawValue
+    @AppStorage(SettingsKey.paletteSnapToEdges) private var paletteSnapToEdges = true
     @AppStorage(SettingsKey.paletteY) private var paletteY = -1.0
 
     @State private var confirmEmptyTrash = false
@@ -80,18 +82,23 @@ struct SettingsView: View {
                 Toggle(isOn: $threeFingerRedo) { Label("Redo con tre dita", systemImage: "arrow.uturn.forward") }
                 Toggle(isOn: $lockZoom) { Label("Blocca zoom", systemImage: "lock") }
                 Toggle(isOn: $ruler) { Label("Righello", systemImage: "ruler") }
+                Toggle(isOn: $paletteSnapToEdges) {
+                    Label("Pannello strumenti sui bordi", systemImage: "rectangle.righthalf.inset.filled")
+                }
                 Button {
                     paletteX = -1
                     paletteY = -1
+                    paletteDock = PaletteDock.bottom.rawValue
                 } label: {
                     Label("Riposiziona il pannello strumenti", systemImage: "rectangle.bottomhalf.inset.filled")
                 }
             }
 
             Section {
-                Toggle(isOn: $iCloudSync) {
+                Toggle(isOn: Binding(get: { BuildFeatures.iCloudSync && iCloudSync }, set: { iCloudSync = $0 })) {
                     Label("Sincronizza con iCloud", systemImage: "icloud")
                 }
+                .disabled(!BuildFeatures.iCloudSync)
                 LabeledContent("Stato") {
                     HStack(spacing: 6) {
                         Circle().fill(statusColor).frame(width: 8, height: 8)
@@ -99,18 +106,22 @@ struct SettingsView: View {
                     }
                     .foregroundStyle(.secondary)
                 }
-                if iCloudSync != persistence.isCloudSyncActive {
+                if BuildFeatures.iCloudSync, iCloudSync != persistence.isCloudSyncActive {
                     Label("Chiudi e riapri BetterNotes per applicare la modifica.", systemImage: "arrow.clockwise")
                         .font(.footnote)
                         .foregroundStyle(Theme.accent)
                 }
-                if let error = persistence.cloudError, iCloudSync {
+                if BuildFeatures.iCloudSync, let error = persistence.cloudError, iCloudSync {
                     Text(error).font(.footnote).foregroundStyle(.red)
                 }
             } header: {
                 Text("iCloud")
             } footer: {
-                Text("Facoltativa. Mantiene note e cartelle allineate su tutti i tuoi dispositivi con lo stesso Apple Account. Richiede iCloud attivo nelle Impostazioni di sistema.")
+                if BuildFeatures.iCloudSync {
+                    Text("Facoltativa. Mantiene note e cartelle allineate su tutti i tuoi dispositivi con lo stesso Apple Account. Richiede iCloud attivo nelle Impostazioni di sistema.")
+                } else {
+                    Text("Non inclusa in questa build: la sincronizzazione iCloud richiede un account Apple Developer. Le note restano salvate solo su questo iPad.")
+                }
             }
 
             Section {
@@ -140,6 +151,7 @@ struct SettingsView: View {
     }
 
     private var statusText: String {
+        if !BuildFeatures.iCloudSync { return "Non disponibile in questa build" }
         if persistence.isCloudSyncActive {
             return persistence.iCloudAccountAvailable ? "Sincronizzazione attiva" : "Accedi a iCloud per sincronizzare"
         }

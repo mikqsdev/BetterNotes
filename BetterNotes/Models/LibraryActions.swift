@@ -13,6 +13,7 @@ enum LibraryActions {
         let folder = Folder(name: name, colorName: palette[siblings % palette.count].rawValue)
         context.insert(folder)
         folder.parent = parent
+        folder.sortIndex = nextSortIndex(in: parent, context: context, excluding: folder)
         parent?.updatedAt = Date()
         try? context.save()
         return folder
@@ -74,6 +75,7 @@ enum LibraryActions {
     static func move(_ folder: Folder, to target: Folder?) -> Bool {
         if let target, target.id == folder.id || target.isDescendant(of: folder) { return false }
         folder.parent = target
+        folder.sortIndex = nextSortIndex(in: target, context: folder.modelContext, excluding: folder)
         folder.updatedAt = Date()
         try? folder.modelContext?.save()
         return true
@@ -96,6 +98,72 @@ enum LibraryActions {
         copy.sourceFileName = note.sourceFileName
         try? context.save()
         return copy
+    }
+
+    // MARK: - Ordine personalizzato
+
+    /// Cartelle sorelle attive, nell'ordine personalizzato.
+    static func siblings(in parent: Folder?, context: ModelContext?) -> [Folder] {
+        let list: [Folder]
+        if let parent {
+            list = parent.activeSubfolders
+        } else {
+            let all = (try? context?.fetch(FetchDescriptor<Folder>())) ?? []
+            list = all.filter { $0.parent == nil && $0.deletedAt == nil }
+        }
+        return Folder.manualOrder(list)
+    }
+
+    private static func nextSortIndex(in parent: Folder?, context: ModelContext?, excluding folder: Folder) -> Int {
+        (siblings(in: parent, context: context).filter { $0.id != folder.id }.map(\.sortIndex).max() ?? -1) + 1
+    }
+
+    /// Posiziona `folder` subito prima o dopo `target` (anche spostandolo in un'altra cartella).
+    @discardableResult
+    static func place(_ folder: Folder, nextTo target: Folder, after: Bool) -> Bool {
+        guard folder.id != target.id, !target.isDescendant(of: folder) else { return false }
+        let context = folder.modelContext
+        let newParent = target.parent
+        if folder.parent?.id != newParent?.id {
+            folder.parent = newParent
+            folder.updatedAt = Date()
+        }
+        var ordered = siblings(in: newParent, context: context).filter { $0.id != folder.id }
+        let targetIndex = ordered.firstIndex { $0.id == target.id } ?? ordered.count
+        ordered.insert(folder, at: min(ordered.count, targetIndex + (after ? 1 : 0)))
+        for (index, item) in ordered.enumerated() where item.sortIndex != index {
+            item.sortIndex = index
+        }
+        try? context?.save()
+        return true
+    }
+
+    /// Inserisce una cartella trascinata nella posizione `index` tra le sorelle di `parent`
+    /// (anche spostandola da un'altra cartella). Una nota trascinata tra le cartelle finisce in `parent`.
+    static func insertDropped(_ payload: String, at index: Int, in parent: Folder?, context: ModelContext) {
+        let parts = payload.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let id = UUID(uuidString: parts[1]) else { return }
+        if parts[0] == "note", let note = note(withID: id, context: context) {
+            move(note, to: parent)
+            return
+        }
+        guard parts[0] == "folder", let folder = folder(withID: id, context: context) else { return }
+        if let parent, parent.id == folder.id || parent.isDescendant(of: folder) { return }
+        let current = siblings(in: parent, context: context)
+        var target = index
+        if folder.parent?.id == parent?.id, let oldIndex = current.firstIndex(where: { $0.id == folder.id }), oldIndex < index {
+            target -= 1
+        }
+        if folder.parent?.id != parent?.id {
+            folder.parent = parent
+            folder.updatedAt = Date()
+        }
+        var ordered = current.filter { $0.id != folder.id }
+        ordered.insert(folder, at: min(max(0, target), ordered.count))
+        for (position, item) in ordered.enumerated() where item.sortIndex != position {
+            item.sortIndex = position
+        }
+        try? context.save()
     }
 
     static func daysRemaining(deletedAt: Date?) -> Int {

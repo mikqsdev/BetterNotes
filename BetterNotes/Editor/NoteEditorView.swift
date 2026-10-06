@@ -22,6 +22,7 @@ struct NoteEditorView: View {
     @State private var showFullSettings = false
     @State private var showRename = false
     @State private var shareItem: ShareItem?
+    @State private var showPages = false
 
     private var editorSettings: EditorSettings {
         EditorSettings(
@@ -160,15 +161,38 @@ struct NoteEditorView: View {
                 HStack(spacing: 10) {
                     if controller.isPaged {
                         Button {
-                            controller.addPage()
+                            showPages = true
                         } label: {
-                            Image(systemName: "doc.badge.plus")
+                            HStack(spacing: 6) {
+                                Image(systemName: "rectangle.portrait.on.rectangle.portrait")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text("\(controller.pageCount)")
+                                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                                    .contentTransition(.numericText())
+                            }
+                            .padding(.horizontal, 4)
+                            .frame(height: 34)
+                        }
+                        .buttonStyle(.glass)
+                        .accessibilityLabel("Gestisci pagine, \(controller.pageCount) pagine")
+                        .popover(isPresented: $showPages, arrowEdge: .top) {
+                            PageManagerView(controller: controller) { url in
+                                showPages = false
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { shareItem = ShareItem(url: url) }
+                            }
+                        }
+                    } else {
+                        Button {
+                            controller.showAllContent()
+                        } label: {
+                            Image(systemName: "viewfinder")
                                 .font(.system(size: 17, weight: .semibold))
                                 .frame(width: 30, height: 34)
                         }
                         .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
-                        .accessibilityLabel("Aggiungi pagina")
+                        .accessibilityLabel("Mostra tutto il contenuto")
+                        .help("Mostra tutto il contenuto")
                     }
 
                     Menu {
@@ -180,13 +204,9 @@ struct NoteEditorView: View {
                                   systemImage: controller.note.isFavorite ? "star.slash" : "star")
                         }
                         Button { showRename = true } label: { Label("Rinomina", systemImage: "pencil") }
-                        if controller.isPaged && controller.pageCount > 1 {
-                            Menu {
-                                ForEach(1...controller.pageCount, id: \.self) { page in
-                                    Button("Pagina \(page)") { controller.goToPage(page) }
-                                }
-                            } label: {
-                                Label("Vai alla pagina", systemImage: "arrow.down.doc")
+                        if controller.isPaged {
+                            Button { showPages = true } label: {
+                                Label("Gestisci pagine", systemImage: "rectangle.portrait.on.rectangle.portrait")
                             }
                         }
                         Divider()
@@ -225,33 +245,42 @@ struct NoteEditorView: View {
 
     private var imageEditingBar: some View {
         GlassEffectContainer(spacing: 12) {
-            HStack(spacing: 12) {
-                Label(controller.hasSelectedImage ? "Trascina per spostare, usa gli angoli per ridimensionare" : "Tocca un'immagine per selezionarla",
-                      systemImage: "hand.draw")
-                    .font(.callout)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .glassEffect(.regular, in: .capsule)
-
+            HStack(spacing: 10) {
                 if controller.hasSelectedImage {
-                    Button {
-                        controller.bringSelectedImageToFront()
-                    } label: {
-                        Image(systemName: "square.3.layers.3d.top.filled").frame(width: 28, height: 30)
+                    HStack(spacing: 2) {
+                        imageAction("Duplica", "plus.square.on.square") { controller.duplicateSelectedImage() }
+                        imageAction("Taglia", "scissors") { controller.cutSelectedImage() }
+                        imageAction("Copia", "doc.on.doc") { controller.copySelectedImage() }
+                        imageAction("Incolla", "doc.on.clipboard", disabled: !controller.canPasteImage) { controller.pasteImage() }
+                        imageAction("Ruota di 90°", "rotate.right") { controller.rotateSelectedImage() }
+                        imageAction("Porta in primo piano", "square.3.layers.3d.top.filled") { controller.bringSelectedImageToFront() }
+                        Menu {
+                            Toggle(isOn: Binding(get: { controller.selectedImageRounded }, set: { controller.setSelectedImage(rounded: $0) })) {
+                                Label("Angoli arrotondati", systemImage: "app")
+                            }
+                            Toggle(isOn: Binding(get: { controller.selectedImageShadow }, set: { controller.setSelectedImage(shadow: $0) })) {
+                                Label("Ombra", systemImage: "shadow")
+                            }
+                        } label: {
+                            Image(systemName: "paintbrush").font(.system(size: 17, weight: .semibold)).frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Aspetto")
+                        imageAction("Elimina", "trash", tint: .red) { controller.deleteSelectedImage() }
                     }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Porta in primo piano")
-
-                    Button(role: .destructive) {
-                        controller.deleteSelectedImage()
-                    } label: {
-                        Image(systemName: "trash").frame(width: 28, height: 30)
+                    .padding(.horizontal, 8)
+                    .glassEffect(.regular, in: .capsule)
+                } else {
+                    HStack(spacing: 10) {
+                        Label("Tocca un'immagine per selezionarla", systemImage: "hand.tap")
+                            .font(.callout)
+                            .padding(.leading, 16)
+                        if controller.canPasteImage {
+                            imageAction("Incolla", "doc.on.clipboard") { controller.pasteImage() }
+                        }
                     }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .tint(.red)
-                    .accessibilityLabel("Elimina immagine")
+                    .padding(.trailing, 6)
+                    .frame(minHeight: 44)
+                    .glassEffect(.regular, in: .capsule)
                 }
 
                 Button {
@@ -263,6 +292,23 @@ struct NoteEditorView: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: controller.hasSelectedImage)
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
+            controller.refreshPasteAvailability()
+        }
+    }
+
+    private func imageAction(_ title: String, _ systemImage: String, tint: Color = .primary, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(disabled ? Color.secondary.opacity(0.5) : tint)
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityLabel(title)
+        .help(title)
     }
 
     private func close() {

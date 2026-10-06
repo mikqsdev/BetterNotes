@@ -33,6 +33,8 @@ struct FolderArtwork: View {
     let color: FolderColor
     let iconName: String?
     var isHighlighted = false
+    /// Quanti documenti mostrare dentro la cartella: 0 = vuota, 1 = un foglio, 2+ = due fogli.
+    var documentCount = 2
 
     var body: some View {
         GeometryReader { geo in
@@ -45,12 +47,16 @@ struct FolderArtwork: View {
                         startPoint: .top, endPoint: .bottom
                     ))
 
-                // Fogli che spuntano dalla cartella.
-                RoundedRectangle(cornerRadius: h * 0.05, style: .continuous)
-                    .fill(Color(white: 0.93))
-                    .frame(width: w * 0.80, height: h * 0.6)
-                    .rotationEffect(.degrees(isHighlighted ? -6 : -2.5))
-                    .offset(x: -w * 0.02, y: -h * (isHighlighted ? 0.34 : 0.26))
+                // Fogli che spuntano dalla cartella (quanti ce ne sono dentro).
+                if documentCount >= 2 {
+                    RoundedRectangle(cornerRadius: h * 0.05, style: .continuous)
+                        .fill(Color(white: 0.93))
+                        .frame(width: w * 0.80, height: h * 0.6)
+                        .rotationEffect(.degrees(isHighlighted ? -6 : -2.5))
+                        .offset(x: -w * 0.02, y: -h * (isHighlighted ? 0.34 : 0.26))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                if documentCount >= 1 {
                 RoundedRectangle(cornerRadius: h * 0.05, style: .continuous)
                     .fill(.white)
                     .frame(width: w * 0.78, height: h * 0.6)
@@ -63,8 +69,10 @@ struct FolderArtwork: View {
                         .padding(.horizontal, w * 0.08)
                         .padding(.top, h * 0.06)
                     }
-                    .rotationEffect(.degrees(isHighlighted ? 4 : 2))
-                    .offset(x: w * 0.02, y: -h * (isHighlighted ? 0.31 : 0.23))
+                    .rotationEffect(.degrees(isHighlighted ? 4 : (documentCount >= 2 ? 2 : 0)))
+                    .offset(x: documentCount >= 2 ? w * 0.02 : 0, y: -h * (isHighlighted ? 0.31 : 0.23))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
 
                 // Fronte.
                 RoundedRectangle(cornerRadius: min(w, h) * 0.09, style: .continuous)
@@ -94,6 +102,7 @@ struct FolderArtwork: View {
                     .shadow(color: .black.opacity(0.16), radius: 3, y: -1)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.6), value: isHighlighted)
+            .animation(.spring(response: 0.4, dampingFraction: 0.75), value: min(documentCount, 2))
         }
         .aspectRatio(1.27, contentMode: .fit)
         .shadow(color: color.color.opacity(0.28), radius: 10, y: 6)
@@ -192,19 +201,49 @@ struct NoteTile: View {
     @Bindable var note: Note
     @Environment(AppRouter.self) private var router
     @Environment(\.noteTransitionNamespace) private var namespace
+    @Environment(\.librarySelection) private var selection
 
     @State private var showRename = false
     @State private var showIcon = false
     @State private var showMove = false
     @State private var confirmDelete = false
+    @State private var shareFiles: ShareFiles?
+    @State private var exportFailed = false
+
+    private var isSelecting: Bool { selection?.isActive ?? false }
+    private var isSelected: Bool { selection?.contains(note) ?? false }
 
     var body: some View {
         Button {
-            router.open(note)
+            if let selection, selection.isActive {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { selection.toggle(note) }
+            } else {
+                router.open(note)
+            }
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 NoteThumbnail(note: note)
                     .modifier(TransitionSource(id: note.id, namespace: namespace))
+                    .overlay {
+                        if isSelecting {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(isSelected ? Theme.accent.opacity(0.12) : .clear)
+                                .strokeBorder(isSelected ? Theme.accent : .clear, lineWidth: 3)
+                        }
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        if isSelecting {
+                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 26, weight: .semibold))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(isSelected ? Color.white : Color.secondary, isSelected ? Theme.accent : Color.white.opacity(0.85))
+                                .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                                .padding(10)
+                                .transition(.scale.combined(with: .opacity))
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
+                    .scaleEffect(isSelecting && isSelected ? 0.95 : 1)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(note.displayTitle)
                         .font(.serif(.headline, weight: .semibold))
@@ -220,9 +259,18 @@ struct NoteTile: View {
             .contentShape(.rect)
         }
         .buttonStyle(TileButtonStyle())
-        .contextMenu { menu }
+        .contextMenu {
+            if !isSelecting { menu }
+        }
         .draggable("note:\(note.id.uuidString)") {
             NoteThumbnail(note: note).frame(width: 110)
+        }
+        .sensoryFeedback(.selection, trigger: isSelected)
+        .sheet(item: $shareFiles) { files in
+            ShareSheet(items: files.urls)
+        }
+        .alert("Esportazione non riuscita", isPresented: $exportFailed) {
+            Button("OK", role: .cancel) {}
         }
         .modifier(RenameAlert(isPresented: $showRename, title: "Rinomina nota", current: note.title) { name in
             note.title = name
@@ -259,6 +307,18 @@ struct NoteTile: View {
             withAnimation { _ = LibraryActions.duplicate(note) }
         } label: { Label("Duplica", systemImage: "plus.square.on.square") }
         Button { showMove = true } label: { Label("Sposta in…", systemImage: "folder") }
+        Button {
+            if let urls = try? NoteRenderer.exportPDFs([note], combinedTitle: nil) {
+                shareFiles = ShareFiles(urls: urls)
+            } else {
+                exportFailed = true
+            }
+        } label: { Label("Esporta PDF", systemImage: "square.and.arrow.up") }
+        if let selection {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { selection.begin(selecting: note) }
+            } label: { Label("Seleziona", systemImage: "checkmark.circle") }
+        }
         Divider()
         Button(role: .destructive) { confirmDelete = true } label: { Label("Elimina", systemImage: "trash") }
     }
@@ -269,6 +329,7 @@ struct NoteTile: View {
 struct FolderTile: View {
     @Bindable var folder: Folder
     @Environment(\.modelContext) private var context
+    @Environment(\.librarySelection) private var selection
 
     @State private var showRename = false
     @State private var showCustomize = false
@@ -279,7 +340,7 @@ struct FolderTile: View {
     var body: some View {
         NavigationLink(value: folder) {
             VStack(alignment: .leading, spacing: 10) {
-                FolderArtwork(color: folder.color, iconName: folder.iconName, isHighlighted: isDropTargeted)
+                FolderArtwork(color: folder.color, iconName: folder.iconName, isHighlighted: isDropTargeted, documentCount: folder.contentCount)
                     .overlay(alignment: .topTrailing) {
                         if folder.isFavorite {
                             Image(systemName: "star.fill")
@@ -305,9 +366,13 @@ struct FolderTile: View {
             .contentShape(.rect)
         }
         .buttonStyle(TileButtonStyle())
+        // In modalità selezione si scelgono solo le note.
+        .disabled(selection?.isActive ?? false)
+        .opacity(selection?.isActive ?? false ? 0.4 : 1)
+        .animation(.easeInOut(duration: 0.2), value: selection?.isActive ?? false)
         .contextMenu { menu }
         .draggable("folder:\(folder.id.uuidString)") {
-            FolderArtwork(color: folder.color, iconName: folder.iconName).frame(width: 120)
+            FolderArtwork(color: folder.color, iconName: folder.iconName, documentCount: folder.contentCount).frame(width: 120)
         }
         .dropDestination(for: String.self) { items, _ in
             let moved = LibraryActions.handleDrop(items.filter { !$0.hasSuffix(folder.id.uuidString) }, into: folder, context: context)
@@ -325,7 +390,7 @@ struct FolderTile: View {
             withAnimation { LibraryActions.trash(folder) }
         })
         .sheet(isPresented: $showCustomize, onDismiss: { try? context.save() }) {
-            CustomizeSheet(title: "Personalizza cartella", iconName: $folder.iconName, colorName: $folder.colorName, previewName: folder.name)
+            CustomizeSheet(title: "Personalizza cartella", iconName: $folder.iconName, colorName: $folder.colorName, previewName: folder.name, previewDocumentCount: folder.contentCount)
         }
         .sheet(isPresented: $showMove) {
             MoveSheet(title: "Sposta cartella", movingFolder: folder, currentParentID: folder.parent?.id) { target in

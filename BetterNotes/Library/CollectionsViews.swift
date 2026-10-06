@@ -132,7 +132,7 @@ struct TrashView: View {
                             subtitle: folder.itemSummary,
                             deletedAt: folder.deletedAt
                         ) {
-                            FolderArtwork(color: folder.color, iconName: folder.iconName).frame(width: 56)
+                            FolderArtwork(color: folder.color, iconName: folder.iconName, documentCount: folder.contentCount).frame(width: 56)
                         }
                         .swipeActions(edge: .leading) {
                             Button { withAnimation { LibraryActions.restore(folder) } } label: {

@@ -18,10 +18,16 @@ struct LibraryView: View {
     @State private var showNewFolder = false
     @State private var newFolderName = ""
     @State private var showImporter = false
-    @State private var isImporting = false
+    @State private var busyMessage: String?
     @State private var importError: String?
+    @State private var exportError: String?
     @State private var showRename = false
     @State private var showCustomize = false
+    @State private var selection = LibrarySelection()
+    @State private var shareFiles: ShareFiles?
+    @State private var showMoveSelection = false
+    @State private var confirmDeleteSelection = false
+    @State private var confirmDeleteSelectionAgain = false
 
     private let columns = [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 28, alignment: .top)]
 
@@ -29,6 +35,7 @@ struct LibraryView: View {
 
     private var subfolders: [Folder] {
         let list = folder?.activeSubfolders ?? allFolders.filter { $0.parent == nil && $0.deletedAt == nil }
+        if sort == .manual { return Folder.manualOrder(list) }
         return sorted(list, name: \.name, created: \.createdAt, modified: \.updatedAt)
     }
 
@@ -47,6 +54,14 @@ struct LibraryView: View {
 
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespaces).isEmpty }
 
+    /// Note visibili ora (risultati di ricerca o contenuto della cartella), usate da "Seleziona tutte".
+    private var visibleNotes: [Note] { isSearching ? searchNotes : notes }
+
+    private var selectedNotes: [Note] {
+        visibleNotes.filter { selection.noteIDs.contains($0.id) }
+            + allNotes.filter { selection.noteIDs.contains($0.id) && !visibleNotes.contains($0) && !$0.isEffectivelyTrashed }
+    }
+
     private var searchFolders: [Folder] {
         let q = searchText.trimmingCharacters(in: .whitespaces)
         return allFolders.filter { !$0.isEffectivelyTrashed && $0.name.localizedStandardContains(q) }
@@ -63,7 +78,7 @@ struct LibraryView: View {
         switch sort {
         case .name: items.sorted { $0[keyPath: name].localizedStandardCompare($1[keyPath: name]) == .orderedAscending }
         case .created: items.sorted { $0[keyPath: created] > $1[keyPath: created] }
-        case .modified: items.sorted { $0[keyPath: modified] > $1[keyPath: modified] }
+        case .modified, .manual: items.sorted { $0[keyPath: modified] > $1[keyPath: modified] }
         }
     }
 
@@ -99,7 +114,7 @@ struct LibraryView: View {
             }
             .padding(.horizontal, 32)
             .padding(.top, 12)
-            .padding(.bottom, 60)
+            .padding(.bottom, selection.isActive ? 120 : 60)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: subfolders.map(\.id))
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: notes.map(\.id))
         }
@@ -107,8 +122,51 @@ struct LibraryView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle(folder?.name ?? "Libreria")
         .navigationSubtitle(subtitle)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Cerca note e cartelle")
         .toolbar { toolbarContent }
+        .environment(\.librarySelection, selection)
+        .overlay(alignment: .bottom) {
+            if selection.isActive {
+                selectionBar
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: selection.isActive)
+        .sheet(item: $shareFiles) { files in
+            ShareSheet(items: files.urls)
+        }
+        .sheet(isPresented: $showMoveSelection) {
+            MoveSheet(title: "Sposta \(selection.noteIDs.count == 1 ? "nota" : "note")", movingFolder: nil, currentParentID: folder?.id) { target in
+                withAnimation {
+                    for note in selectedNotes { LibraryActions.move(note, to: target) }
+                    selection.end()
+                }
+            }
+        }
+        .confirmationDialog(deleteSelectionTitle, isPresented: $confirmDeleteSelection, titleVisibility: .visible) {
+            Button("Elimina", role: .destructive) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { confirmDeleteSelectionAgain = true }
+            }
+            Button("Annulla", role: .cancel) {}
+        } message: {
+            Text("Le note selezionate verranno spostate nel Cestino.")
+        }
+        .alert("Sei sicuro?", isPresented: $confirmDeleteSelectionAgain) {
+            Button("Annulla", role: .cancel) {}
+            Button("Sì, elimina", role: .destructive) {
+                withAnimation {
+                    for note in selectedNotes { LibraryActions.trash(note) }
+                    selection.end()
+                }
+            }
+        } message: {
+            Text("Conferma ancora una volta. Potrai recuperarle dal Cestino entro \(LibraryActions.trashRetentionDays) giorni, poi verranno eliminate per sempre.")
+        }
+        .alert("Esportazione non riuscita", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "")
+        }
         .dropDestination(for: String.self) { items, _ in
             _ = LibraryActions.handleDrop(items, into: folder, context: context)
         }
@@ -145,21 +203,30 @@ struct LibraryView: View {
             Text(importError ?? "")
         }
         .overlay {
-            if isImporting {
+            if let busyMessage {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text("Importazione in corso…").font(.serif(.headline, weight: .semibold))
+                    Text(busyMessage).font(.serif(.headline, weight: .semibold))
                 }
                 .padding(32)
                 .glassEffect(.regular, in: .rect(cornerRadius: 28))
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
-        .animation(.spring, value: isImporting)
+        .animation(.spring, value: busyMessage)
         .modifier(FolderHeaderActions(folder: folder, showRename: $showRename, showCustomize: $showCustomize))
     }
 
+    private var deleteSelectionTitle: String {
+        let count = selection.noteIDs.count
+        return count == 1 ? "Eliminare 1 nota?" : "Eliminare \(count) note?"
+    }
+
     private var subtitle: String {
+        if selection.isActive {
+            let count = selection.noteIDs.count
+            return count == 0 ? "Seleziona le note" : (count == 1 ? "1 nota selezionata" : "\(count) note selezionate")
+        }
         if isSearching { return "" }
         let f = subfolders.count, n = notes.count
         let folders = f == 1 ? "1 cartella" : "\(f) cartelle"
@@ -169,8 +236,58 @@ struct LibraryView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        if selection.isActive {
+            ToolbarItem(placement: .topBarTrailing) {
+                let allSelected = !visibleNotes.isEmpty && visibleNotes.allSatisfy { selection.contains($0) }
+                Button(allSelected ? "Deseleziona tutte" : "Seleziona tutte") {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        if allSelected {
+                            selection.noteIDs.subtract(visibleNotes.map(\.id))
+                        } else {
+                            selection.noteIDs.formUnion(visibleNotes.map(\.id))
+                        }
+                    }
+                }
+                .disabled(visibleNotes.isEmpty)
+            }
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Fine") {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { selection.end() }
+                }
+                .buttonStyle(.glassProminent)
+            }
+        } else {
+            regularToolbar
+        }
+        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        ToolbarItem(placement: .topBarTrailing) {
+            InlineSearchField(text: $searchText, prompt: "Cerca note e cartelle", width: 240)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var regularToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { selection.begin() }
+                } label: {
+                    Label("Seleziona note", systemImage: "checkmark.circle")
+                }
+                .disabled(visibleNotes.isEmpty)
+                Menu {
+                    Button { export(visibleNotes, combined: false) } label: {
+                        Label("Un PDF per ogni nota", systemImage: "doc.on.doc")
+                    }
+                    Button { export(visibleNotes, combined: true) } label: {
+                        Label("Tutte in un unico PDF", systemImage: "doc.richtext")
+                    }
+                } label: {
+                    Label(folder == nil ? "Esporta tutte le note" : "Esporta le note della cartella", systemImage: "square.and.arrow.up")
+                }
+                .disabled(visibleNotes.isEmpty)
+                Divider()
                 Picker("Ordina per", selection: $sortRaw) {
                     ForEach(LibrarySort.allCases) { option in
                         Label(option.title, systemImage: option.systemImage).tag(option.rawValue)
@@ -213,6 +330,87 @@ struct LibraryView: View {
             .buttonStyle(.glassProminent)
             .keyboardShortcut("n", modifiers: .command)
             .help("Nuova nota")
+        }
+    }
+
+    private var selectionBar: some View {
+        let count = selection.noteIDs.count
+        let notes = selectedNotes
+        return GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 12) {
+                Text(count == 0 ? "Nessuna nota selezionata" : (count == 1 ? "1 nota" : "\(count) note"))
+                    .font(.serif(.headline, weight: .semibold))
+                    .contentTransition(.numericText())
+                    .padding(.horizontal, 18)
+                    .frame(height: 48)
+                    .glassEffect(.regular, in: .capsule)
+
+                HStack(spacing: 4) {
+                    Menu {
+                        Button { export(notes, combined: false) } label: {
+                            Label(count == 1 ? "Esporta PDF" : "Un PDF per ogni nota", systemImage: "doc.on.doc")
+                        }
+                        if count > 1 {
+                            Button { export(notes, combined: true) } label: {
+                                Label("Tutte in un unico PDF", systemImage: "doc.richtext")
+                            }
+                        }
+                    } label: {
+                        Label("Esporta", systemImage: "square.and.arrow.up")
+                            .padding(.horizontal, 14)
+                            .frame(height: 48)
+                    }
+
+                    Button { showMoveSelection = true } label: {
+                        Label("Sposta", systemImage: "folder")
+                            .padding(.horizontal, 14)
+                            .frame(height: 48)
+                    }
+
+                    Button {
+                        let makeFavorite = !notes.allSatisfy(\.isFavorite)
+                        withAnimation { for note in notes { note.isFavorite = makeFavorite } }
+                        try? context.save()
+                    } label: {
+                        Label(notes.allSatisfy(\.isFavorite) && !notes.isEmpty ? "Rimuovi preferiti" : "Preferiti", systemImage: "star")
+                            .padding(.horizontal, 14)
+                            .frame(height: 48)
+                    }
+
+                    Button(role: .destructive) { confirmDeleteSelection = true } label: {
+                        Label("Elimina", systemImage: "trash")
+                            .padding(.horizontal, 14)
+                            .frame(height: 48)
+                    }
+                    .tint(.red)
+                }
+                .labelStyle(.titleAndIcon)
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 6)
+                .glassEffect(.regular, in: .capsule)
+                .disabled(count == 0)
+                .opacity(count == 0 ? 0.5 : 1)
+            }
+        }
+    }
+
+    /// Esporta le note in PDF (separati o in un unico file) e apre il foglio di condivisione.
+    private func export(_ notes: [Note], combined: Bool) {
+        guard !notes.isEmpty else { return }
+        busyMessage = notes.count == 1 ? "Esportazione in corso…" : "Esportazione di \(notes.count) note…"
+        Task { @MainActor in
+            // Lascia apparire l'indicatore prima del rendering.
+            try? await Task.sleep(for: .milliseconds(120))
+            do {
+                let title = combined ? "\(folder?.name ?? "Libreria") - \(notes.count) note" : nil
+                let urls = try NoteRenderer.exportPDFs(notes, combinedTitle: title)
+                busyMessage = nil
+                shareFiles = ShareFiles(urls: urls)
+            } catch {
+                busyMessage = nil
+                exportError = error.localizedDescription
+            }
         }
     }
 
@@ -263,7 +461,7 @@ struct LibraryView: View {
     private var emptyState: some View {
         VStack(spacing: 22) {
             ZStack {
-                FolderArtwork(color: folder?.color ?? .terracotta, iconName: folder?.iconName ?? "pencil.and.scribble")
+                FolderArtwork(color: folder?.color ?? .terracotta, iconName: folder?.iconName ?? "pencil.and.scribble", documentCount: folder == nil ? 2 : 0)
                     .frame(width: 170)
                     .opacity(0.9)
             }
@@ -301,8 +499,8 @@ struct LibraryView: View {
     }
 
     private func importFiles(_ urls: [URL]) async {
-        isImporting = true
-        defer { isImporting = false }
+        busyMessage = "Importazione in corso…"
+        defer { busyMessage = nil }
         var lastNote: Note?
         var errors: [String] = []
         for url in urls {
@@ -348,7 +546,8 @@ private struct FolderHeaderActions: ViewModifier {
                         title: "Personalizza cartella",
                         iconName: Binding(get: { folder.iconName }, set: { folder.iconName = $0 }),
                         colorName: Binding(get: { folder.colorName }, set: { folder.colorName = $0 }),
-                        previewName: folder.name
+                        previewName: folder.name,
+                        previewDocumentCount: folder.contentCount
                     )
                 }
         } else {

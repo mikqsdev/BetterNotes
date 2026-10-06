@@ -24,6 +24,7 @@ final class EditorController: Identifiable {
     @ObservationIgnored private var thumbnailIsStale = false
     @ObservationIgnored private var settings = EditorSettings()
     @ObservationIgnored private var toolBeforeDoubleTap: ToolKind?
+    @ObservationIgnored private var pageThumbnailCache: [Int: (version: Int, image: UIImage)] = [:]
 
     var tool: ToolState {
         didSet {
@@ -38,6 +39,9 @@ final class EditorController: Identifiable {
     var canRedo = false
     var isEditingImages = false
     var hasSelectedImage = false
+    var selectedImageRounded = false
+    var selectedImageShadow = false
+    var canPasteImage = false
     var currentPage = 1
     var pageCount: Int
     var zoomPercent = 100
@@ -49,23 +53,10 @@ final class EditorController: Identifiable {
     init(note: Note) {
         self.note = note
         self.id = note.id
-        let style = note.paperStyle
-        let pdf = note.pdfData.flatMap(PDFSource.init(data:))
-        let drawing = note.drawingData.flatMap { try? PKDrawing(data: $0) } ?? PKDrawing()
-        let stored = note.attachmentsData.flatMap { try? PropertyListDecoder().decode([StoredImage].self, from: $0) } ?? []
-        let images = stored.map {
-            CanvasImage(id: $0.id, frame: CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height), data: $0.data)
-        }
-        let pageCount = style == .pdf ? max(note.pageCount, pdf?.pageCount ?? 1) : max(1, note.pageCount)
-        let layout = PageLayout.make(
-            style: style,
-            pageCount: pageCount,
-            pdfPageSizes: pdf?.pageSizes,
-            infiniteSize: CGSize(width: note.canvasWidth, height: note.canvasHeight)
-        )
-        self.pageCount = layout.pageCount
+        let content = NoteRenderer.snapshot(for: note)
+        self.pageCount = content.layout.pageCount
         self.tool = ToolState.load()
-        self.canvasView = NoteCanvasView(drawing: drawing, images: images, layout: layout, pdf: pdf)
+        self.canvasView = NoteCanvasView(drawing: content.drawing, images: content.images, layout: content.layout, pdf: content.pdf)
         canvasView.controller = self
         canvasView.apply(tool: tool)
     }
@@ -149,6 +140,10 @@ final class EditorController: Identifiable {
         canvasView.zoomToFit(animated: true)
     }
 
+    func showAllContent() {
+        canvasView.showAllContent()
+    }
+
     // MARK: - Cronologia
 
     func undo() { canvasView.undo() }
@@ -178,14 +173,64 @@ final class EditorController: Identifiable {
         if zoomPercent != percent { zoomPercent = percent }
     }
 
-    func addPage() {
-        canvasView.addPage()
-        pageCount = canvasView.layout.pageCount
-        showToast("Pagina \(pageCount) aggiunta", systemImage: "doc.badge.plus")
-    }
-
     func goToPage(_ page: Int) {
         canvasView.scrollToPage(page - 1, animated: true)
+    }
+
+    // MARK: - Gestione pagine
+
+    func pageLayoutDidChange() {
+        let count = canvasView.layout.pageCount
+        if pageCount != count { pageCount = count }
+        pageThumbnailCache.removeAll()
+    }
+
+    var pageSources: [Int] { canvasView.layout.pageSources }
+    var pageStyle: PaperStyle { canvasView.layout.style }
+
+    /// Inserisce una pagina vuota; `index` è 0-based (nil = in fondo).
+    func insertPage(at index: Int? = nil) {
+        let target = index ?? pageCount
+        canvasView.insertBlankPage(at: target)
+        showToast("Pagina \(target + 1) aggiunta", systemImage: "doc.badge.plus")
+    }
+
+    func duplicatePage(_ index: Int) {
+        canvasView.duplicatePage(index)
+        showToast("Pagina duplicata", systemImage: "plus.square.on.square")
+    }
+
+    func deletePage(_ index: Int) {
+        guard pageCount > 1 else { return }
+        canvasView.deletePage(index)
+        showToast("Pagina eliminata", systemImage: "trash")
+    }
+
+    func movePage(from source: Int, to destination: Int) {
+        canvasView.movePage(from: source, to: destination)
+    }
+
+    func clearPage(_ index: Int) {
+        canvasView.clearPage(index)
+        showToast("Pagina svuotata", systemImage: "eraser")
+    }
+
+    func changePaperStyle(to style: PaperStyle) {
+        canvasView.changePaperStyle(to: style)
+        note.paperStyleRaw = style.rawValue
+        try? note.modelContext?.save()
+    }
+
+    func pageThumbnail(_ index: Int) -> UIImage? {
+        let version = canvasView.contentVersion
+        if let cached = pageThumbnailCache[index], cached.version == version { return cached.image }
+        guard let image = NoteRenderer.pageThumbnail(for: snapshot, page: index, width: 220) else { return nil }
+        pageThumbnailCache[index] = (version, image)
+        return image
+    }
+
+    func exportPageImage(_ index: Int) -> URL? {
+        try? NoteRenderer.exportImage(snapshot, pageIndex: index, title: note.displayTitle + " - pagina \(index + 1)")
     }
 
     // MARK: - Immagini
@@ -227,13 +272,44 @@ final class EditorController: Identifiable {
 
     func deleteSelectedImage() { canvasView.deleteSelectedImage() }
     func bringSelectedImageToFront() { canvasView.bringSelectedImageToFront() }
+    func duplicateSelectedImage() { canvasView.duplicateSelectedImage() }
+    func rotateSelectedImage() { canvasView.rotateSelectedImage(by: .pi / 2) }
+    func setSelectedImage(rounded: Bool) { canvasView.setSelectedImage(rounded: rounded) }
+    func setSelectedImage(shadow: Bool) { canvasView.setSelectedImage(shadow: shadow) }
+
+    func copySelectedImage() {
+        canvasView.copySelectedImage()
+        refreshPasteAvailability()
+        showToast("Immagine copiata", systemImage: "doc.on.doc")
+    }
+
+    func cutSelectedImage() {
+        canvasView.cutSelectedImage()
+        refreshPasteAvailability()
+    }
+
+    func pasteImage() {
+        if canvasView.pasteOwnImage() { return }
+        guard let image = UIPasteboard.general.image, let data = image.pngData() else { return }
+        insertImage(data: data)
+    }
+
+    func refreshPasteAvailability() {
+        let available = UIPasteboard.general.hasImages
+        if canPasteImage != available { canPasteImage = available }
+    }
 
     func imageEditingDidChange(_ editing: Bool) {
+        if editing { refreshPasteAvailability() }
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { isEditingImages = editing }
     }
 
-    func imageSelectionDidChange(_ selected: Bool) {
-        if hasSelectedImage != selected { hasSelectedImage = selected }
+    func imageSelectionDidChange(_ image: CanvasImage?) {
+        if hasSelectedImage != (image != nil) { hasSelectedImage = image != nil }
+        if let image {
+            if selectedImageRounded != image.rounded { selectedImageRounded = image.rounded }
+            if selectedImageShadow != image.shadow { selectedImageShadow = image.shadow }
+        }
     }
 
     // MARK: - Salvataggio
@@ -258,11 +334,13 @@ final class EditorController: Identifiable {
         let layout = canvasView.layout
         if isDirty {
             note.drawingData = canvasView.drawing.dataRepresentation()
-            let stored = canvasView.images.map {
-                StoredImage(id: $0.id, x: $0.frame.minX, y: $0.frame.minY, width: $0.frame.width, height: $0.frame.height, data: $0.data)
-            }
-            note.attachmentsData = stored.isEmpty ? nil : try? PropertyListEncoder().encode(stored)
+            note.attachmentsData = NoteRenderer.encode(canvasView.images)
             note.pageCount = max(1, layout.pageCount)
+            if !layout.isInfinite {
+                let natural = PageLayout.defaultSources(pageCount: layout.pageCount, pdfPageCount: canvasView.pdf?.pageCount ?? 0)
+                note.pageSourcesData = layout.pageSources == natural ? nil : try? JSONEncoder().encode(layout.pageSources)
+                note.paperStyleRaw = layout.style.rawValue
+            }
             if layout.isInfinite {
                 note.canvasWidth = layout.docSize.width
                 note.canvasHeight = layout.docSize.height

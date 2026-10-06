@@ -75,23 +75,30 @@ struct PaperRenderer: Sendable {
     static let dotColor = UIColor(red: 0.55, green: 0.58, blue: 0.64, alpha: 0.75).cgColor
     static let shadowColor = UIColor(white: 0, alpha: 0.13).cgColor
 
-    func draw(in ctx: CGContext, rect: CGRect, drawShadows: Bool = true) {
+    /// - Parameter fillPaper: disegna anche il bianco della carta. Sulla tela è falso: il bianco e le ombre
+    ///   sono un layer separato (sempre visibile), così le tile non lasciano mai "buchi" scuri mentre si ridisegnano.
+    func draw(in ctx: CGContext, rect: CGRect, drawShadows: Bool = true, fillPaper: Bool = true) {
         if layout.isInfinite {
-            ctx.setFillColor(Theme.paperUI.cgColor)
-            ctx.fill(rect)
+            if fillPaper {
+                ctx.setFillColor(Theme.paperUI.cgColor)
+                ctx.fill(rect)
+            }
             let area = CGRect(origin: .zero, size: layout.docSize)
             Self.drawPattern(layout.style.pattern, in: area, clip: rect, isPage: false, ctx: ctx)
             return
         }
 
         for (index, page) in layout.pageRects.enumerated() {
-            let shadowReach: CGFloat = drawShadows ? 30 : 0
+            let shadowReach: CGFloat = drawShadows && fillPaper ? 30 : 0
             guard page.insetBy(dx: -shadowReach, dy: -shadowReach).intersects(rect) else { continue }
-            Self.drawPage(page, ctx: ctx, shadow: drawShadows)
+            if fillPaper { Self.drawPage(page, ctx: ctx, shadow: drawShadows) }
             ctx.saveGState()
             ctx.clip(to: page)
-            if layout.style == .pdf, let pdf, index < pdf.pageCount {
-                pdf.draw(page: index, in: page, context: ctx)
+            let source = index < layout.pageSources.count ? layout.pageSources[index] : -1
+            if layout.style == .pdf {
+                if let pdf, source >= 0, source < pdf.pageCount {
+                    pdf.draw(page: source, in: page, context: ctx)
+                }
             } else {
                 Self.drawPattern(layout.style.pattern, in: page, clip: rect.intersection(page), isPage: true, ctx: ctx)
             }
@@ -204,7 +211,7 @@ struct PaperRenderer: Sendable {
 }
 
 /// Layer a tile: disegno vettoriale nitido a qualsiasi livello di zoom.
-final class PaperTiledLayer: CATiledLayer, @unchecked Sendable {
+final class PaperTiledLayer: CATiledLayer {
     private let lock = NSLock()
     private var _renderer: PaperRenderer?
 
@@ -217,7 +224,7 @@ final class PaperTiledLayer: CATiledLayer, @unchecked Sendable {
 
     override func draw(in ctx: CGContext) {
         guard let renderer else { return }
-        renderer.draw(in: ctx, rect: ctx.boundingBoxOfClipPath)
+        renderer.draw(in: ctx, rect: ctx.boundingBoxOfClipPath, drawShadows: false, fillPaper: false)
     }
 }
 
@@ -230,7 +237,7 @@ final class PaperView: UIView {
         isOpaque = false
         backgroundColor = .clear
         isUserInteractionEnabled = false
-        tiledLayer.tileSize = CGSize(width: 512, height: 512)
+        tiledLayer.tileSize = CGSize(width: 1024, height: 1024)
         tiledLayer.levelsOfDetail = 5
         tiledLayer.levelsOfDetailBias = 3
     }

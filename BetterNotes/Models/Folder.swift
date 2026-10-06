@@ -11,6 +11,8 @@ final class Folder {
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
     var deletedAt: Date?
+    /// Ordine personalizzato tra cartelle sorelle (riordinabile dalla barra laterale).
+    var sortIndex: Int = 0
 
     var parent: Folder?
     @Relationship(deleteRule: .cascade, inverse: \Folder.parent)
@@ -38,8 +40,19 @@ final class Folder {
 
     /// Figli per OutlineGroup (nil = foglia, niente freccia).
     var outlineChildren: [Folder]? {
-        let children = activeSubfolders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let children = Folder.manualOrder(activeSubfolders)
         return children.isEmpty ? nil : children
+    }
+
+    /// Numero di elementi contenuti (note e sottocartelle), usato dall'icona della cartella.
+    var contentCount: Int { activeNotes.count + activeSubfolders.count }
+
+    /// Ordine personalizzato: indice manuale, poi nome.
+    static func manualOrder(_ folders: [Folder]) -> [Folder] {
+        folders.sorted {
+            if $0.sortIndex != $1.sortIndex { return $0.sortIndex < $1.sortIndex }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
     }
 
     func isDescendant(of other: Folder) -> Bool {

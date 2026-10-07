@@ -13,6 +13,8 @@ enum SettingsKey {
     static let pencilDoubleTap = "pencilDoubleTap"
     static let paletteX = "paletteX"
     static let paletteY = "paletteY"
+    static let paletteDock = "paletteDock"
+    static let paletteSnapToEdges = "paletteSnapToEdges"
     static let defaultPaper = "defaultPaper"
     static let toolState = "toolState"
     static let showPageNumbers = "showPageNumbers"
@@ -33,6 +35,8 @@ enum AppSettings {
             SettingsKey.pencilDoubleTap: PencilDoubleTapAction.system.rawValue,
             SettingsKey.paletteX: -1.0,
             SettingsKey.paletteY: -1.0,
+            SettingsKey.paletteDock: "bottom",
+            SettingsKey.paletteSnapToEdges: true,
             SettingsKey.defaultPaper: PaperStyle.pageLined.rawValue,
             SettingsKey.showPageNumbers: true,
         ])
@@ -59,13 +63,14 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 enum LibrarySort: String, CaseIterable, Identifiable {
-    case modified, created, name
+    case modified, created, name, manual
     var id: String { rawValue }
     var title: String {
         switch self {
         case .modified: "Ultima modifica"
         case .created: "Data di creazione"
         case .name: "Nome"
+        case .manual: "Ordine personalizzato"
         }
     }
     var systemImage: String {
@@ -73,6 +78,7 @@ enum LibrarySort: String, CaseIterable, Identifiable {
         case .modified: "clock.arrow.circlepath"
         case .created: "calendar"
         case .name: "textformat"
+        case .manual: "line.3.horizontal"
         }
     }
 }

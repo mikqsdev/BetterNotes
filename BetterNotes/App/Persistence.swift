@@ -2,6 +2,19 @@ import Foundation
 import SwiftData
 import Observation
 
+/// Funzioni attivate in fase di compilazione.
+///
+/// La sincronizzazione iCloud richiede un account Apple Developer (entitlement CloudKit), quindi è
+/// esclusa dalle build normali. Per riattivarla vedi il README: basta aggiungere `ICLOUD_SYNC` alle
+/// "Active Compilation Conditions" e collegare `Config/BetterNotes.entitlements`.
+enum BuildFeatures {
+    #if ICLOUD_SYNC
+    static let iCloudSync = true
+    #else
+    static let iCloudSync = false
+    #endif
+}
+
 /// Crea il contenitore SwiftData. La sincronizzazione iCloud (CloudKit) è facoltativa
 /// e viene applicata all'avvio dell'app in base all'impostazione dell'utente.
 @Observable
@@ -14,9 +27,10 @@ final class Persistence {
 
     init() {
         let schema = Schema([Folder.self, Note.self])
-        let wantsCloud = UserDefaults.standard.bool(forKey: SettingsKey.iCloudSync)
+        let wantsCloud = BuildFeatures.iCloudSync && UserDefaults.standard.bool(forKey: SettingsKey.iCloudSync)
         var cloudError: String?
 
+        #if ICLOUD_SYNC
         if wantsCloud {
             do {
                 let config = ModelConfiguration(
@@ -32,6 +46,9 @@ final class Persistence {
                 cloudError = error.localizedDescription
             }
         }
+        #else
+        _ = wantsCloud
+        #endif
 
         do {
             let config = ModelConfiguration("BetterNotes", schema: schema, cloudKitDatabase: .none)

@@ -11,33 +11,49 @@ struct PageLayout: Sendable, Equatable {
     let style: PaperStyle
     let pageRects: [CGRect]
     let docSize: CGSize
+    /// Per ogni pagina: indice della pagina PDF di sfondo, oppure -1 per una pagina con il motivo della carta.
+    let pageSources: [Int]
 
     var isInfinite: Bool { style.isInfinite }
     var pageCount: Int { pageRects.count }
 
+    /// Ordine naturale delle pagine: prima le pagine del PDF, poi eventuali pagine vuote.
+    static func defaultSources(pageCount: Int, pdfPageCount: Int) -> [Int] {
+        (0..<max(1, pageCount)).map { $0 < pdfPageCount ? $0 : -1 }
+    }
+
     static func make(style: PaperStyle, pageCount: Int, pdfPageSizes: [CGSize]? = nil, infiniteSize: CGSize) -> PageLayout {
+        make(style: style, pageSources: defaultSources(pageCount: pageCount, pdfPageCount: pdfPageSizes?.count ?? 0),
+             pdfPageSizes: pdfPageSizes, infiniteSize: infiniteSize)
+    }
+
+    static func make(style: PaperStyle, pageSources: [Int], pdfPageSizes: [CGSize]? = nil, infiniteSize: CGSize) -> PageLayout {
         if style.isInfinite {
             let size = CGSize(
                 width: max(infiniteSize.width, defaultInfiniteSize.width),
                 height: max(infiniteSize.height, defaultInfiniteSize.height)
             )
-            return PageLayout(style: style, pageRects: [], docSize: size)
+            return PageLayout(style: style, pageRects: [], docSize: size, pageSources: [])
         }
 
+        let sources = pageSources.isEmpty ? [-1] : pageSources
         var rects: [CGRect] = []
         var y = margin
-        let count = max(1, pageCount)
-        for index in 0..<count {
+        for source in sources {
             var size = pageSize
-            if let sizes = pdfPageSizes, index < sizes.count, sizes[index].width > 0 {
-                let s = sizes[index]
+            if let sizes = pdfPageSizes, source >= 0, source < sizes.count, sizes[source].width > 0 {
+                let s = sizes[source]
                 size = CGSize(width: pageSize.width, height: (pageSize.width * s.height / s.width).rounded())
             }
             rects.append(CGRect(x: margin, y: y, width: size.width, height: size.height))
             y += size.height + pageGap
         }
         let height = y - pageGap + margin
-        return PageLayout(style: style, pageRects: rects, docSize: CGSize(width: pageSize.width + margin * 2, height: height))
+        return PageLayout(style: style, pageRects: rects, docSize: CGSize(width: pageSize.width + margin * 2, height: height), pageSources: sources)
+    }
+
+    func withStyle(_ newStyle: PaperStyle, pdfPageSizes: [CGSize]?) -> PageLayout {
+        PageLayout.make(style: newStyle, pageSources: pageSources, pdfPageSizes: pdfPageSizes, infiniteSize: docSize)
     }
 
     /// Indice (0-based) della pagina più vicina a una coordinata verticale.
@@ -50,6 +66,6 @@ struct PageLayout: Sendable, Equatable {
     }
 
     func withGrownInfiniteSize(_ size: CGSize) -> PageLayout {
-        PageLayout(style: style, pageRects: [], docSize: size)
+        PageLayout(style: style, pageRects: [], docSize: size, pageSources: [])
     }
 }

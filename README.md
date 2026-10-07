@@ -10,14 +10,21 @@ App iPadOS nativa (SwiftUI + PencilKit, iPadOS 26) per prendere appunti scolasti
 
 > Nel simulatore non c'è l'Apple Pencil: disattiva **Favorisci Apple Pencil** dal menù rapido dell'editor per poter scrivere con il mouse/dito.
 
-## Sincronizzazione iCloud (facoltativa)
+## Sincronizzazione iCloud (disattivata in questa build)
 
-È già predisposta (SwiftData + CloudKit). Per attivarla su dispositivo:
+La sincronizzazione iCloud richiede un account Apple Developer a pagamento (entitlement CloudKit), quindi è
+**esclusa dalla compilazione**: l'app si compila ed esporta con un account gratuito e in Impostazioni la voce
+iCloud è visibile ma disattivata, con la spiegazione. Il codice resta nel progetto, protetto dal flag `ICLOUD_SYNC`.
 
-1. In *Signing & Capabilities* aggiungi **iCloud** → spunta **CloudKit** e crea il container `iCloud.com.romeo.BetterNotes`
-   (se cambi il bundle id, aggiorna anche `Persistence.cloudContainerID` e `Config/BetterNotes.entitlements`).
-2. Aggiungi **Background Modes → Remote notifications** (già presente in `Config/Info.plist`).
-3. Nell'app: *Impostazioni → Sincronizza con iCloud*, poi chiudi e riapri l'app.
+Per riattivarla:
+
+1. *Build Settings → Swift Compiler – Custom Flags → Active Compilation Conditions*: aggiungi `ICLOUD_SYNC`
+   (Debug e Release).
+2. *Build Settings → Code Signing Entitlements*: imposta `Config/BetterNotes.entitlements`.
+3. *Signing & Capabilities*: aggiungi **iCloud** → spunta **CloudKit** e crea il container `iCloud.com.romeo.BetterNotes`
+   (se cambi il bundle id, aggiorna anche `Persistence.cloudContainerID` e l'entitlements), poi
+   **Background Modes → Remote notifications**.
+4. Nell'app: *Impostazioni → Sincronizza con iCloud*, poi chiudi e riapri l'app.
 
 ## Struttura
 
@@ -27,6 +34,6 @@ App iPadOS nativa (SwiftUI + PencilKit, iPadOS 26) per prendere appunti scolasti
 | `Models/` | `Folder`, `Note` (SwiftData), stili carta, colori, icone, azioni (cestino, spostamenti) |
 | `Library/` | Home, card di cartelle/note, menu contestuali, nuova nota, preferiti, recenti, cestino |
 | `Editor/` | Editor nota, pannello strumenti fluttuante, menù rapido, esportazione |
-| `Editor/Canvas/` | Tela PencilKit, carta vettoriale a tile, stabilizzazione tratto, immagini |
+| `Editor/Canvas/` | Tela PencilKit, carta vettoriale, inchiostro con stabilizzazione in tempo reale (`LiveInk`), immagini, pagine |
 | `Import/` | Importazione PDF e Word (.docx/.doc → PDF impaginato A4) |
 | `Settings/` | Impostazioni |

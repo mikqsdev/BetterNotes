@@ -10,6 +10,7 @@ struct QuickSettingsView: View {
     @AppStorage(SettingsKey.threeFingerRedo) private var threeFingerRedo = true
     @AppStorage(SettingsKey.pencilOnly) private var pencilOnly = true
     @AppStorage(SettingsKey.ruler) private var ruler = false
+    @AppStorage(SettingsKey.paletteSnapToEdges) private var paletteSnapToEdges = true
     @AppStorage(SettingsKey.showPageNumbers) private var showPageNumbers = true
     @AppStorage(SettingsKey.appearance) private var appearance = AppearanceMode.system.rawValue
 
@@ -48,6 +49,9 @@ struct QuickSettingsView: View {
                 Section("Strumenti") {
                     Toggle(isOn: $ruler) {
                         QuickRow(title: "Righello", subtitle: "Traccia linee perfettamente dritte", systemImage: "ruler")
+                    }
+                    Toggle(isOn: $paletteSnapToEdges) {
+                        QuickRow(title: "Strumenti sui bordi", subtitle: "Il pannello si aggancia ai bordi dello schermo", systemImage: "rectangle.righthalf.inset.filled")
                     }
                     Toggle(isOn: $showPageNumbers) {
                         QuickRow(title: "Mostra pagina e zoom", subtitle: "Sotto il titolo della nota", systemImage: "number")

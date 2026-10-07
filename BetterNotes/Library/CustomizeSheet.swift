@@ -7,6 +7,7 @@ struct CustomizeSheet: View {
     @Binding var iconName: String?
     var colorName: Binding<String>?
     var previewName: String
+    var previewDocumentCount = 2
 
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
@@ -79,6 +80,14 @@ struct CustomizeSheet: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    InlineSearchField(text: $search, prompt: "Cerca icone o materie", width: nil, drawsBackground: true)
+
+                    if filteredCategories.isEmpty {
+                        Text("Nessuna icona trovata per “\(search)”.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
                     ForEach(filteredCategories) { category in
                         VStack(alignment: .leading, spacing: 12) {
                             Text(category.name)
@@ -111,7 +120,6 @@ struct CustomizeSheet: View {
                 .padding(28)
             }
             .background(Theme.background)
-            .searchable(text: $search, prompt: "Cerca icone o materie")
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -126,7 +134,7 @@ struct CustomizeSheet: View {
     private var preview: some View {
         if let colorName {
             VStack(spacing: 10) {
-                FolderArtwork(color: FolderColor(rawValue: colorName.wrappedValue) ?? .terracotta, iconName: iconName)
+                FolderArtwork(color: FolderColor(rawValue: colorName.wrappedValue) ?? .terracotta, iconName: iconName, documentCount: previewDocumentCount)
                     .frame(width: 150, height: 118)
                 Text(previewName).font(.serif(.headline, weight: .semibold))
             }

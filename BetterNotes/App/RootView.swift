@@ -22,6 +22,8 @@ struct RootView: View {
         .fullScreenCover(item: $router.editor) { editor in
             NoteEditorView(controller: editor)
                 .navigationTransition(.zoom(sourceID: editor.note.id, in: noteNamespace))
+                // La nota si chiude solo con il tasto indietro: niente pizzico o swipe per uscire.
+                .interactiveDismissDisabled()
                 .preferredColorScheme(colorScheme)
                 .fontDesign(.serif)
                 .tint(Theme.accent)
@@ -80,9 +82,11 @@ private struct SidebarView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Folder.name) private var folders: [Folder]
     @Query private var notes: [Note]
+    @State private var expandedFolders: Set<UUID> = []
+    @State private var dragModel = SidebarDragModel()
 
     private var rootFolders: [Folder] {
-        folders.filter { $0.parent == nil && $0.deletedAt == nil }
+        Folder.manualOrder(folders.filter { $0.parent == nil && $0.deletedAt == nil })
     }
     private var trashCount: Int {
         folders.filter { $0.deletedAt != nil }.count + notes.filter { $0.deletedAt != nil }.count
@@ -106,23 +110,18 @@ private struct SidebarView: View {
                     .tag(SidebarItem.favorites)
             }
 
-            Section("Cartelle") {
+            Section {
                 if rootFolders.isEmpty {
                     Text("Nessuna cartella")
                         .foregroundStyle(.tertiary)
                         .selectionDisabled()
                 }
-                OutlineGroup(rootFolders, children: \.outlineChildren) { folder in
-                    Label {
-                        Text(folder.name).lineLimit(1)
-                    } icon: {
-                        Image(systemName: folder.iconName ?? "folder.fill")
-                            .foregroundStyle(folder.color.color)
-                    }
-                    .tag(SidebarItem.folder(folder.id))
-                    .dropDestination(for: String.self) { items, _ in
-                        _ = LibraryActions.handleDrop(items.filter { !$0.hasSuffix(folder.id.uuidString) }, into: folder, context: context)
-                    }
+                SidebarFolderTree(folders: rootFolders, expanded: $expandedFolders)
+            } header: {
+                Text("Cartelle")
+            } footer: {
+                if rootFolders.count > 1 {
+                    Text("Tieni premuta una cartella e trascinala sopra o sotto un'altra per riordinarla, oppure al centro di una cartella per spostarla dentro.")
                 }
             }
 
@@ -134,6 +133,12 @@ private struct SidebarView: View {
                     .tag(SidebarItem.settings)
             }
         }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { dragModel.containerFrame = $0 }
+        .overlay { SidebarDragGhost(folders: folders) }
+        .scrollDisabled(dragModel.draggingID != nil)
+        .environment(dragModel)
+        .sensoryFeedback(.selection, trigger: dragModel.target?.id)
+        .sensoryFeedback(.impact(weight: .medium), trigger: dragModel.draggingID) { _, new in new != nil }
         .navigationTitle("BetterNotes")
     }
 }

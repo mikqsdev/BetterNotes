@@ -68,8 +68,8 @@ final class Folder {
         let f = activeSubfolders.count
         let n = activeNotes.count
         var parts: [String] = []
-        if f > 0 { parts.append(f == 1 ? "1 cartella" : "\(f) cartelle") }
-        if n > 0 || f == 0 { parts.append(n == 1 ? "1 nota" : "\(n) note") }
+        if f > 0 { parts.append(Counts.folders(f)) }
+        if n > 0 || f == 0 { parts.append(Counts.notes(n)) }
         return parts.joined(separator: " · ")
     }
 }

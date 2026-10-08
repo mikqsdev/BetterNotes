@@ -401,7 +401,7 @@ private struct ExpandedToolCard<DragG: Gesture>: View {
                 .frame(width: 40, height: 5)
                 .frame(maxWidth: .infinity)
             HStack {
-                Text(controller.tool.kind.isInk ? "Matita" : controller.tool.kind.title)
+                Text(controller.tool.kind.isInk ? String(localized: "Matita") : controller.tool.kind.title)
                     .font(.serif(.title3, weight: .semibold))
                     .contentTransition(.opacity)
                 Spacer()
@@ -494,7 +494,7 @@ private struct InkSection: View {
                 "\(Int((controller.tool.opacity * 100).rounded()))%"
             }
             ToolSlider(title: "Stabilizzazione", systemImage: "scribble.variable", value: $controller.tool.stabilization, range: 0...1) {
-                controller.tool.stabilization < 0.02 ? "Off" : "\(Int((controller.tool.stabilization * 100).rounded()))%"
+                controller.tool.stabilization < 0.02 ? String(localized: "Off") : "\(Int((controller.tool.stabilization * 100).rounded()))%"
             }
         }
     }
@@ -558,7 +558,7 @@ private struct LassoSection: View {
 
 private struct SectionLabel: View {
     let text: String
-    init(_ text: String) { self.text = text }
+    init(_ text: LocalizedStringResource) { self.text = String(localized: text) }
     var body: some View {
         Text(text.uppercased())
             .font(.caption.weight(.semibold))
@@ -594,7 +594,7 @@ private struct ColorSwatch: View {
 }
 
 private struct ToolSlider: View {
-    let title: String
+    let title: LocalizedStringKey
     let systemImage: String
     @Binding var value: Double
     let range: ClosedRange<Double>

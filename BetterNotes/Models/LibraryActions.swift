@@ -84,7 +84,7 @@ enum LibraryActions {
     @discardableResult
     static func duplicate(_ note: Note) -> Note? {
         guard let context = note.modelContext else { return nil }
-        let copy = Note(title: note.title + " (copia)", style: note.paperStyle)
+        let copy = Note(title: String(localized: "\(note.title) (copia)"), style: note.paperStyle)
         context.insert(copy)
         copy.folder = note.folder
         copy.iconName = note.iconName

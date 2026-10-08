@@ -17,6 +17,9 @@ struct NoteEditorView: View {
     @AppStorage(SettingsKey.ruler) private var ruler = false
     @AppStorage(SettingsKey.pencilDoubleTap) private var doubleTapRaw = PencilDoubleTapAction.system.rawValue
     @AppStorage(SettingsKey.showPageNumbers) private var showPageNumbers = true
+    @AppStorage(SettingsKey.infiniteRecenter) private var infiniteRecenterRaw = InfiniteRecenterMode.content.rawValue
+
+    private var infiniteRecenter: InfiniteRecenterMode { InfiniteRecenterMode(rawValue: infiniteRecenterRaw) ?? .content }
 
     @State private var showQuickSettings = false
     @State private var showFullSettings = false
@@ -54,6 +57,13 @@ struct NoteEditorView: View {
                 topBar
                     .padding(.horizontal, 18)
                     .padding(.top, 6)
+
+                if let actions = controller.editActions {
+                    editActionsBar(actions)
+                        // Sotto la barra superiore, senza coprire il titolo della nota.
+                        .padding(.top, 70)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
                 if let toast = controller.toast {
                     Label(toast.text, systemImage: toast.systemImage)
@@ -183,16 +193,17 @@ struct NoteEditorView: View {
                         }
                     } else {
                         Button {
-                            controller.showAllContent()
+                            controller.recenterInfiniteCanvas(infiniteRecenter)
                         } label: {
-                            Image(systemName: "viewfinder")
+                            Image(systemName: infiniteRecenter.systemImage)
                                 .font(.system(size: 17, weight: .semibold))
                                 .frame(width: 30, height: 34)
+                                .contentTransition(.symbolEffect(.replace))
                         }
                         .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
-                        .accessibilityLabel("Mostra tutto il contenuto")
-                        .help("Mostra tutto il contenuto")
+                        .accessibilityLabel(infiniteRecenter.title)
+                        .help(infiniteRecenter.title)
                     }
 
                     Menu {
@@ -236,9 +247,38 @@ struct NoteEditorView: View {
 
     private var statusLine: String {
         if controller.isPaged {
-            return "Pagina \(controller.currentPage) di \(controller.pageCount) · \(controller.zoomPercent)%"
+            return String(localized: "Pagina \(controller.currentPage) di \(controller.pageCount) · \(controller.zoomPercent)%")
         }
-        return "Foglio infinito · \(controller.zoomPercent)%"
+        return String(localized: "Foglio infinito · \(controller.zoomPercent)%")
+    }
+
+    // MARK: - Barra delle azioni (tocco a tre dita)
+
+    private func editActionsBar(_ actions: EditActionsState) -> some View {
+        HStack(spacing: 2) {
+            editAction("Annulla l’ultima modifica", "arrow.uturn.backward", enabled: controller.canUndo) { controller.perform(.undo) }
+            editAction("Ripeti l’ultima modifica", "arrow.uturn.forward", enabled: controller.canRedo) { controller.perform(.redo) }
+            Divider().frame(height: 22).padding(.horizontal, 4)
+            editAction("Taglia", "scissors", enabled: actions.canCut) { controller.perform(.cut) }
+            editAction("Copia", "doc.on.doc", enabled: actions.canCopy) { controller.perform(.copy) }
+            editAction("Incolla", "doc.on.clipboard", enabled: actions.canPaste) { controller.perform(.paste) }
+        }
+        .padding(.horizontal, 8)
+        .glassEffect(.regular, in: .capsule)
+    }
+
+    private func editAction(_ title: LocalizedStringKey, _ systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(enabled ? Color.primary : Color.secondary.opacity(0.45))
+                .frame(width: 46, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(title)
+        .help(title)
     }
 
     // MARK: - Modifica immagini
@@ -297,7 +337,7 @@ struct NoteEditorView: View {
         }
     }
 
-    private func imageAction(_ title: String, _ systemImage: String, tint: Color = .primary, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+    private func imageAction(_ title: LocalizedStringKey, _ systemImage: String, tint: Color = .primary, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 17, weight: .semibold))

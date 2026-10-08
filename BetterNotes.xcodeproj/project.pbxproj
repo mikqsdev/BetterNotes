@@ -98,9 +98,10 @@
 				};
 			};
 			buildConfigurationList = B1A00000000000000000000B /* Build configuration list for PBXProject "BetterNotes" */;
-			developmentRegion = it;
+			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				en,
 				it,
 				Base,
 			);

@@ -11,9 +11,9 @@ enum ImportError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unreadable(let name): "Impossibile leggere “\(name)”."
-        case .unsupported(let name): "Il formato di “\(name)” non è supportato."
-        case .conversionFailed(let name): "Impossibile convertire “\(name)” in pagine annotabili."
+        case .unreadable(let name): String(localized: "Impossibile leggere “\(name)”.")
+        case .unsupported(let name): String(localized: "Il formato di “\(name)” non è supportato.")
+        case .conversionFailed(let name): String(localized: "Impossibile convertire “\(name)” in pagine annotabili.")
         }
     }
 }

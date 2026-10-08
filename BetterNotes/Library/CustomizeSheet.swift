@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Scelta di icona (e colore, per le cartelle).
 struct CustomizeSheet: View {
-    let title: String
+    let title: LocalizedStringKey
     @Binding var iconName: String?
     var colorName: Binding<String>?
     var previewName: String
@@ -75,7 +75,7 @@ struct CustomizeSheet: View {
                                 .font(.subheadline)
                             }
                         }
-                        Text("Facoltativa: comparirà sopra la \(colorName == nil ? "nota" : "cartella").")
+                        Text(colorName == nil ? "Facoltativa: comparirà sopra la nota." : "Facoltativa: comparirà sopra la cartella.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -158,7 +158,7 @@ struct CustomizeSheet: View {
 
 /// Selettore di destinazione per spostare note e cartelle.
 struct MoveSheet: View {
-    let title: String
+    let title: LocalizedStringKey
     let movingFolder: Folder?
     let currentParentID: UUID?
     let onSelect: (Folder?) -> Void

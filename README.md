@@ -10,6 +10,16 @@ App iPadOS nativa (SwiftUI + PencilKit, iPadOS 26) per prendere appunti scolasti
 
 > Nel simulatore non c'è l'Apple Pencil: disattiva **Favorisci Apple Pencil** dal menù rapido dell'editor per poter scrivere con il mouse/dito.
 
+## Lingue
+
+L'app è in **italiano** e **inglese** e segue la lingua del dispositivo (per le altre lingue usa l'inglese).
+Si può scegliere una lingua solo per BetterNotes da *Impostazioni di iPadOS › App › BetterNotes › Lingua*.
+
+I testi stanno in `BetterNotes/Localizable.xcstrings` (le chiavi sono le frasi italiane). Xcode aggiunge da solo
+le nuove stringhe al catalogo quando compili: basta scriverne la traduzione inglese nell'editor del catalogo.
+Ogni voce ha anche il valore italiano esplicito, altrimenti Xcode non genera `it.lproj` e iPadOS non mostra
+l'italiano tra le lingue dell'app.
+
 ## Sincronizzazione iCloud (disattivata in questa build)
 
 La sincronizzazione iCloud richiede un account Apple Developer a pagamento (entitlement CloudKit), quindi è

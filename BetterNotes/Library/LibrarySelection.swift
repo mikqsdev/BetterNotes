@@ -39,7 +39,7 @@ struct ShareFiles: Identifiable {
 /// della schermata quando è attivo.
 struct InlineSearchField: View {
     @Binding var text: String
-    var prompt: String
+    var prompt: LocalizedStringKey
     var width: CGFloat? = 280
     /// Fuori dalla barra di navigazione il campo disegna il proprio sfondo in vetro.
     var drawsBackground = false

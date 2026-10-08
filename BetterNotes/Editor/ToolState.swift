@@ -13,13 +13,13 @@ enum ToolKind: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .pen: "Penna"
-        case .pencil: "Matita"
-        case .marker: "Evidenziatore"
-        case .fountain: "Stilografica"
-        case .monoline: "Fineliner"
-        case .eraser: "Gomma"
-        case .lasso: "Lazo"
+        case .pen: String(localized: "Penna")
+        case .pencil: String(localized: "Matita")
+        case .marker: String(localized: "Evidenziatore")
+        case .fountain: String(localized: "Stilografica")
+        case .monoline: String(localized: "Fineliner")
+        case .eraser: String(localized: "Gomma")
+        case .lasso: String(localized: "Lazo")
         }
     }
 
@@ -60,11 +60,11 @@ enum ToolKind: String, Codable, CaseIterable, Identifiable {
 enum EraserMode: String, Codable, CaseIterable, Identifiable {
     case pixel, stroke
     var id: String { rawValue }
-    var title: String { self == .pixel ? "Pixel" : "Tratto" }
+    var title: String { self == .pixel ? String(localized: "Pixel") : String(localized: "Tratto") }
     var detail: String {
         self == .pixel
-            ? "Cancella solo i punti che tocchi, come una gomma vera."
-            : "Cancella l'intero tratto al primo tocco."
+            ? String(localized: "Cancella solo i punti che tocchi, come una gomma vera.")
+            : String(localized: "Cancella l'intero tratto al primo tocco.")
     }
 }
 

@@ -120,7 +120,7 @@ struct LibraryView: View {
         }
         .scrollDismissesKeyboard(.immediately)
         .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(folder?.name ?? "Libreria")
+        .navigationTitle(folder?.name ?? String(localized: "Libreria"))
         .navigationSubtitle(subtitle)
         .toolbar { toolbarContent }
         .environment(\.librarySelection, selection)
@@ -136,7 +136,7 @@ struct LibraryView: View {
             ShareSheet(items: files.urls)
         }
         .sheet(isPresented: $showMoveSelection) {
-            MoveSheet(title: "Sposta \(selection.noteIDs.count == 1 ? "nota" : "note")", movingFolder: nil, currentParentID: folder?.id) { target in
+            MoveSheet(title: selection.noteIDs.count == 1 ? "Sposta nota" : "Sposta note", movingFolder: nil, currentParentID: folder?.id) { target in
                 withAnimation {
                     for note in selectedNotes { LibraryActions.move(note, to: target) }
                     selection.end()
@@ -185,7 +185,7 @@ struct LibraryView: View {
             Button("Crea") {
                 let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
                 withAnimation {
-                    _ = LibraryActions.createFolder(named: name.isEmpty ? "Nuova cartella" : name, in: folder, context: context)
+                    _ = LibraryActions.createFolder(named: name.isEmpty ? String(localized: "Nuova cartella") : name, in: folder, context: context)
                 }
             }
         } message: {
@@ -219,19 +219,17 @@ struct LibraryView: View {
 
     private var deleteSelectionTitle: String {
         let count = selection.noteIDs.count
-        return count == 1 ? "Eliminare 1 nota?" : "Eliminare \(count) note?"
+        return count == 1 ? String(localized: "Eliminare 1 nota?") : String(localized: "Eliminare \(count) note?")
     }
 
     private var subtitle: String {
         if selection.isActive {
             let count = selection.noteIDs.count
-            return count == 0 ? "Seleziona le note" : (count == 1 ? "1 nota selezionata" : "\(count) note selezionate")
+            return count == 0 ? String(localized: "Seleziona le note") : (count == 1 ? String(localized: "1 nota selezionata") : String(localized: "\(count) note selezionate"))
         }
         if isSearching { return "" }
         let f = subfolders.count, n = notes.count
-        let folders = f == 1 ? "1 cartella" : "\(f) cartelle"
-        let noteText = n == 1 ? "1 nota" : "\(n) note"
-        return "\(folders) · \(noteText)"
+        return "\(Counts.folders(f)) · \(Counts.notes(n))"
     }
 
     @ToolbarContentBuilder
@@ -398,12 +396,12 @@ struct LibraryView: View {
     /// Esporta le note in PDF (separati o in un unico file) e apre il foglio di condivisione.
     private func export(_ notes: [Note], combined: Bool) {
         guard !notes.isEmpty else { return }
-        busyMessage = notes.count == 1 ? "Esportazione in corso…" : "Esportazione di \(notes.count) note…"
+        busyMessage = notes.count == 1 ? String(localized: "Esportazione in corso…") : String(localized: "Esportazione di \(notes.count) note…")
         Task { @MainActor in
             // Lascia apparire l'indicatore prima del rendering.
             try? await Task.sleep(for: .milliseconds(120))
             do {
-                let title = combined ? "\(folder?.name ?? "Libreria") - \(notes.count) note" : nil
+                let title = combined ? "\(folder?.name ?? String(localized: "Libreria")) - \(Counts.notes(notes.count))" : nil
                 let urls = try NoteRenderer.exportPDFs(notes, combinedTitle: title)
                 busyMessage = nil
                 shareFiles = ShareFiles(urls: urls)
@@ -499,7 +497,7 @@ struct LibraryView: View {
     }
 
     private func importFiles(_ urls: [URL]) async {
-        busyMessage = "Importazione in corso…"
+        busyMessage = String(localized: "Importazione in corso…")
         defer { busyMessage = nil }
         var lastNote: Note?
         var errors: [String] = []

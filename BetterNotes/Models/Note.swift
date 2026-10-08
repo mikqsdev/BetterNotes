@@ -47,7 +47,7 @@ final class Note {
         deletedAt != nil || (folder?.isEffectivelyTrashed ?? false)
     }
 
-    var displayTitle: String { title.isEmpty ? "Senza titolo" : title }
+    var displayTitle: String { title.isEmpty ? String(localized: "Senza titolo") : title }
 }
 
 /// Immagine incollata nella nota (serializzata in `Note.attachmentsData`).

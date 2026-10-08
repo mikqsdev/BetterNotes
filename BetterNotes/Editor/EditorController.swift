@@ -4,6 +4,17 @@ import SwiftData
 import SwiftUI
 import UIKit
 
+/// Barra delle azioni (annulla, ripristina, taglia, copia, incolla) mostrata con il tocco a tre dita.
+struct EditActionsState: Equatable {
+    var canCut = false
+    var canCopy = false
+    var canPaste = false
+}
+
+enum EditAction {
+    case undo, redo, cut, copy, paste
+}
+
 struct EditorToast: Equatable, Identifiable {
     let id = UUID()
     let text: String
@@ -20,6 +31,7 @@ final class EditorController: Identifiable {
     @ObservationIgnored let canvasView: NoteCanvasView
     @ObservationIgnored private var saveWorkItem: DispatchWorkItem?
     @ObservationIgnored private var toastWorkItem: DispatchWorkItem?
+    @ObservationIgnored private var editActionsWorkItem: DispatchWorkItem?
     @ObservationIgnored private var isDirty = false
     @ObservationIgnored private var thumbnailIsStale = false
     @ObservationIgnored private var settings = EditorSettings()
@@ -46,6 +58,7 @@ final class EditorController: Identifiable {
     var pageCount: Int
     var zoomPercent = 100
     var toast: EditorToast?
+    var editActions: EditActionsState?
 
     var style: PaperStyle { note.paperStyle }
     var isPaged: Bool { !note.paperStyle.isInfinite }
@@ -127,6 +140,7 @@ final class EditorController: Identifiable {
 
     func userDidBeginDrawing() {
         if isPaletteExpanded { isPaletteExpanded = false }
+        if editActions != nil { hideEditActions() }
     }
 
     // MARK: - Impostazioni
@@ -140,8 +154,12 @@ final class EditorController: Identifiable {
         canvasView.zoomToFit(animated: true)
     }
 
-    func showAllContent() {
-        canvasView.showAllContent()
+    /// Tasto "Inquadra" del foglio infinito: il comportamento si sceglie nelle Impostazioni.
+    func recenterInfiniteCanvas(_ mode: InfiniteRecenterMode) {
+        switch mode {
+        case .content: canvasView.centerOnContent()
+        case .defaultView: canvasView.resetToDefaultView()
+        }
     }
 
     // MARK: - Cronologia
@@ -152,6 +170,57 @@ final class EditorController: Identifiable {
     func historyDidChange() {
         if canUndo != canvasView.canUndo { canUndo = canvasView.canUndo }
         if canRedo != canvasView.canRedo { canRedo = canvasView.canRedo }
+    }
+
+    // MARK: - Barra delle azioni
+
+    func showEditActions() {
+        let state = currentEditActions()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { editActions = state }
+        scheduleEditActionsHide()
+    }
+
+    func hideEditActions() {
+        editActionsWorkItem?.cancel()
+        withAnimation(.easeOut(duration: 0.25)) { editActions = nil }
+    }
+
+    private func scheduleEditActionsHide() {
+        editActionsWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.hideEditActions() }
+        editActionsWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+    }
+
+    private func currentEditActions() -> EditActionsState {
+        if isEditingImages {
+            return EditActionsState(canCut: hasSelectedImage, canCopy: hasSelectedImage, canPaste: UIPasteboard.general.hasImages)
+        }
+        return EditActionsState(
+            canCut: canvasView.canPerformEditAction(#selector(UIResponderStandardEditActions.cut(_:))),
+            canCopy: canvasView.canPerformEditAction(#selector(UIResponderStandardEditActions.copy(_:))),
+            canPaste: canvasView.canPerformEditAction(#selector(UIResponderStandardEditActions.paste(_:))) || UIPasteboard.general.hasImages
+        )
+    }
+
+    func perform(_ action: EditAction) {
+        switch action {
+        case .undo, .redo:
+            action == .undo ? undo() : redo()
+            // La barra resta visibile per annullare o ripristinare più volte di seguito.
+            editActions = currentEditActions()
+            scheduleEditActionsHide()
+            return
+        case .cut:
+            if isEditingImages { cutSelectedImage() } else { canvasView.performEditAction(#selector(UIResponderStandardEditActions.cut(_:))) }
+        case .copy:
+            if isEditingImages { copySelectedImage() } else { canvasView.performEditAction(#selector(UIResponderStandardEditActions.copy(_:))) }
+        case .paste:
+            if isEditingImages || !canvasView.performEditAction(#selector(UIResponderStandardEditActions.paste(_:))) {
+                pasteImage()
+            }
+        }
+        hideEditActions()
     }
 
     func showToast(_ text: String, systemImage: String) {
@@ -192,18 +261,18 @@ final class EditorController: Identifiable {
     func insertPage(at index: Int? = nil) {
         let target = index ?? pageCount
         canvasView.insertBlankPage(at: target)
-        showToast("Pagina \(target + 1) aggiunta", systemImage: "doc.badge.plus")
+        showToast(String(localized: "Pagina \(target + 1) aggiunta"), systemImage: "doc.badge.plus")
     }
 
     func duplicatePage(_ index: Int) {
         canvasView.duplicatePage(index)
-        showToast("Pagina duplicata", systemImage: "plus.square.on.square")
+        showToast(String(localized: "Pagina duplicata"), systemImage: "plus.square.on.square")
     }
 
     func deletePage(_ index: Int) {
         guard pageCount > 1 else { return }
         canvasView.deletePage(index)
-        showToast("Pagina eliminata", systemImage: "trash")
+        showToast(String(localized: "Pagina eliminata"), systemImage: "trash")
     }
 
     func movePage(from source: Int, to destination: Int) {
@@ -212,7 +281,7 @@ final class EditorController: Identifiable {
 
     func clearPage(_ index: Int) {
         canvasView.clearPage(index)
-        showToast("Pagina svuotata", systemImage: "eraser")
+        showToast(String(localized: "Pagina svuotata"), systemImage: "eraser")
     }
 
     func changePaperStyle(to style: PaperStyle) {
@@ -230,7 +299,7 @@ final class EditorController: Identifiable {
     }
 
     func exportPageImage(_ index: Int) -> URL? {
-        try? NoteRenderer.exportImage(snapshot, pageIndex: index, title: note.displayTitle + " - pagina \(index + 1)")
+        try? NoteRenderer.exportImage(snapshot, pageIndex: index, title: note.displayTitle + " - " + String(localized: "pagina \(index + 1)"))
     }
 
     // MARK: - Immagini
@@ -280,7 +349,7 @@ final class EditorController: Identifiable {
     func copySelectedImage() {
         canvasView.copySelectedImage()
         refreshPasteAvailability()
-        showToast("Immagine copiata", systemImage: "doc.on.doc")
+        showToast(String(localized: "Immagine copiata"), systemImage: "doc.on.doc")
     }
 
     func cutSelectedImage() {
@@ -368,7 +437,7 @@ final class EditorController: Identifiable {
     }
 
     func exportCurrentPageImage() -> URL? {
-        let suffix = isPaged ? " - pagina \(currentPage)" : ""
+        let suffix = isPaged ? " - " + String(localized: "pagina \(currentPage)") : ""
         return try? NoteRenderer.exportImage(snapshot, pageIndex: currentPage - 1, title: note.displayTitle + suffix)
     }
 }

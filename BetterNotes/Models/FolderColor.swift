@@ -26,7 +26,22 @@ enum FolderColor: String, CaseIterable, Identifiable {
     var uiColor: UIColor { UIColor(hex: hex) }
     var color: Color { Color(uiColor: uiColor) }
 
-    var displayName: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+    var displayName: String {
+        switch self {
+        case .terracotta: String(localized: "Terracotta")
+        case .corallo: String(localized: "Corallo")
+        case .rosa: String(localized: "Rosa")
+        case .senape: String(localized: "Senape")
+        case .salvia: String(localized: "Salvia")
+        case .menta: String(localized: "Menta")
+        case .oceano: String(localized: "Oceano")
+        case .indaco: String(localized: "Indaco")
+        case .lavanda: String(localized: "Lavanda")
+        case .prugna: String(localized: "Prugna")
+        case .cioccolato: String(localized: "Cioccolato")
+        case .ardesia: String(localized: "Ardesia")
+        }
+    }
 
     /// Pallino colorato per i menu contestuali (i menu ignorano il tint, serve un'immagine "original").
     var menuSwatch: UIImage {

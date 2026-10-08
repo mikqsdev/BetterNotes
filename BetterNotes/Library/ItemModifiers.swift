@@ -3,7 +3,7 @@ import SwiftUI
 /// Alert con campo di testo per rinominare.
 struct RenameAlert: ViewModifier {
     @Binding var isPresented: Bool
-    let title: String
+    let title: LocalizedStringKey
     let current: String
     let onRename: (String) -> Void
     @State private var text = ""
@@ -65,13 +65,25 @@ struct TileButtonStyle: ButtonStyle {
 }
 
 struct SectionHeader: View {
-    let title: String
+    let title: Text
     var subtitle: String? = nil
     var count: Int? = nil
 
+    init(title: LocalizedStringKey, subtitle: String? = nil, count: Int? = nil) {
+        self.title = Text(title)
+        self.subtitle = subtitle
+        self.count = count
+    }
+
+    /// Titolo già tradotto (es. calcolato nel codice).
+    init(verbatim title: String, count: Int? = nil) {
+        self.title = Text(verbatim: title)
+        self.count = count
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title)
+            title
                 .font(.serif(.title2, weight: .semibold))
             if let count {
                 Text("\(count)")
@@ -93,8 +105,8 @@ extension Date {
     var relativeItalian: String {
         let calendar = Calendar.current
         let time = formatted(date: .omitted, time: .shortened)
-        if calendar.isDateInToday(self) { return "Oggi, \(time)" }
-        if calendar.isDateInYesterday(self) { return "Ieri, \(time)" }
+        if calendar.isDateInToday(self) { return String(localized: "Oggi, \(time)") }
+        if calendar.isDateInYesterday(self) { return String(localized: "Ieri, \(time)") }
         if let days = calendar.dateComponents([.day], from: self, to: Date()).day, days < 7 {
             return formatted(.dateTime.weekday(.wide)).capitalized + ", \(time)"
         }

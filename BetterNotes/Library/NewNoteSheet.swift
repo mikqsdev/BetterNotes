@@ -57,7 +57,7 @@ struct NewNoteSheet: View {
         }
     }
 
-    private func section(title: String, subtitle: String, styles: [PaperStyle]) -> some View {
+    private func section(title: LocalizedStringKey, subtitle: LocalizedStringKey, styles: [PaperStyle]) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.serif(.title2, weight: .semibold))
@@ -78,7 +78,7 @@ struct NewNoteSheet: View {
         lastStyleRaw = style.rawValue
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalTitle = trimmed.isEmpty
-            ? "Nota del " + Date().formatted(.dateTime.day().month(.wide))
+            ? String(localized: "Nota del \(Date().formatted(.dateTime.day().month(.wide)))")
             : trimmed
         dismiss()
         onCreate(finalTitle, style)

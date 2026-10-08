@@ -38,33 +38,33 @@ enum PaperStyle: String, CaseIterable, Identifiable, Codable, Sendable {
 
     var title: String {
         switch self {
-        case .infiniteBlank: "Bianco"
-        case .infiniteGrid: "Quadretti"
-        case .infiniteLined: "Righe"
-        case .infiniteDotted: "Puntini"
-        case .pageBlank: "Bianco"
-        case .pageLined: "Righe"
-        case .pageGridSmall: "Quadretti piccoli"
-        case .pageGridMedium: "Quadretti medi"
-        case .pageGridLarge: "Quadretti grandi"
-        case .pageDotted: "Puntini"
-        case .pdf: "Documento"
+        case .infiniteBlank: String(localized: "Bianco")
+        case .infiniteGrid: String(localized: "Quadretti")
+        case .infiniteLined: String(localized: "Righe")
+        case .infiniteDotted: String(localized: "Puntini")
+        case .pageBlank: String(localized: "Bianco")
+        case .pageLined: String(localized: "Righe")
+        case .pageGridSmall: String(localized: "Quadretti piccoli")
+        case .pageGridMedium: String(localized: "Quadretti medi")
+        case .pageGridLarge: String(localized: "Quadretti grandi")
+        case .pageDotted: String(localized: "Puntini")
+        case .pdf: String(localized: "Documento")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .infiniteBlank: "Foglio enorme, libero"
-        case .infiniteGrid: "Foglio enorme a quadretti"
-        case .infiniteLined: "Foglio enorme a righe"
-        case .infiniteDotted: "Foglio enorme a puntini"
-        case .pageBlank: "Pagine A4 bianche"
-        case .pageLined: "Pagine A4 a righe"
-        case .pageGridSmall: "Quadretti da 4 mm"
-        case .pageGridMedium: "Quadretti da 5 mm"
-        case .pageGridLarge: "Quadretti da 1 cm"
-        case .pageDotted: "Pagine A4 a puntini"
-        case .pdf: "PDF o Word importato"
+        case .infiniteBlank: String(localized: "Foglio enorme, libero")
+        case .infiniteGrid: String(localized: "Foglio enorme a quadretti")
+        case .infiniteLined: String(localized: "Foglio enorme a righe")
+        case .infiniteDotted: String(localized: "Foglio enorme a puntini")
+        case .pageBlank: String(localized: "Pagine A4 bianche")
+        case .pageLined: String(localized: "Pagine A4 a righe")
+        case .pageGridSmall: String(localized: "Quadretti da 4 mm")
+        case .pageGridMedium: String(localized: "Quadretti da 5 mm")
+        case .pageGridLarge: String(localized: "Quadretti da 1 cm")
+        case .pageDotted: String(localized: "Pagine A4 a puntini")
+        case .pdf: String(localized: "PDF o Word importato")
         }
     }
 

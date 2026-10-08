@@ -18,6 +18,7 @@ enum SettingsKey {
     static let defaultPaper = "defaultPaper"
     static let toolState = "toolState"
     static let showPageNumbers = "showPageNumbers"
+    static let infiniteRecenter = "infiniteRecenter"
 }
 
 enum AppSettings {
@@ -39,6 +40,7 @@ enum AppSettings {
             SettingsKey.paletteSnapToEdges: true,
             SettingsKey.defaultPaper: PaperStyle.pageLined.rawValue,
             SettingsKey.showPageNumbers: true,
+            SettingsKey.infiniteRecenter: InfiniteRecenterMode.content.rawValue,
         ])
     }
 }
@@ -48,9 +50,9 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .system: "Automatico"
-        case .light: "Chiaro"
-        case .dark: "Scuro"
+        case .system: String(localized: "Automatico")
+        case .light: String(localized: "Chiaro")
+        case .dark: String(localized: "Scuro")
         }
     }
     var colorScheme: ColorScheme? {
@@ -67,10 +69,10 @@ enum LibrarySort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .modified: "Ultima modifica"
-        case .created: "Data di creazione"
-        case .name: "Nome"
-        case .manual: "Ordine personalizzato"
+        case .modified: String(localized: "Ultima modifica")
+        case .created: String(localized: "Data di creazione")
+        case .name: String(localized: "Nome")
+        case .manual: String(localized: "Ordine personalizzato")
         }
     }
     var systemImage: String {
@@ -88,11 +90,29 @@ enum PencilDoubleTapAction: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .system: "Come da Impostazioni di sistema"
-        case .eraser: "Passa alla gomma"
-        case .previous: "Strumento precedente"
-        case .palette: "Mostra strumenti"
-        case .none: "Nessuna azione"
+        case .system: String(localized: "Come da Impostazioni di sistema")
+        case .eraser: String(localized: "Passa alla gomma")
+        case .previous: String(localized: "Strumento precedente")
+        case .palette: String(localized: "Mostra strumenti")
+        case .none: String(localized: "Nessuna azione")
+        }
+    }
+}
+
+/// Cosa fa il tasto "Inquadra" nei fogli infiniti.
+enum InfiniteRecenterMode: String, CaseIterable, Identifiable {
+    case content, defaultView
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .content: String(localized: "Centra sul contenuto")
+        case .defaultView: String(localized: "Torna alla vista predefinita")
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .content: "viewfinder"
+        case .defaultView: "1.magnifyingglass"
         }
     }
 }

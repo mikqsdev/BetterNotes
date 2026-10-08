@@ -19,13 +19,44 @@ enum NoteRenderer {
         for image in snapshot.images where image.boundingBox.insetBy(dx: -30, dy: -30).intersects(region) {
             drawImage(image, in: ctx)
         }
-        var ink: UIImage?
-        // PKDrawing.image rispetta la modalità scura: forziamo la resa chiara (carta bianca).
-        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
-            ink = snapshot.drawing.image(from: region, scale: inkScale)
-        }
-        ink?.draw(in: region)
+        drawInk(snapshot.drawing, region: region, scale: inkScale)
         ctx.restoreGState()
+    }
+
+    /// Lato massimo (in pixel) di un singolo tassello d'inchiostro.
+    private static let inkTilePixels: CGFloat = 3072
+
+    /// Disegna l'inchiostro a tasselli, saltando quelli vuoti: un foglio infinito con contenuti sparsi
+    /// non genera mai un'unica immagine gigantesca (lenta da creare e pesantissima nel PDF).
+    private static func drawInk(_ drawing: PKDrawing, region: CGRect, scale: CGFloat) {
+        let strokeBounds = drawing.strokes.map(\.renderBounds).filter { $0.intersects(region) }
+        guard !strokeBounds.isEmpty else { return }
+        let tile = max(256, (inkTilePixels / scale).rounded(.down))
+        var y = region.minY
+        while y < region.maxY {
+            var x = region.minX
+            while x < region.maxX {
+                let rect = CGRect(x: x, y: y, width: min(tile, region.maxX - x), height: min(tile, region.maxY - y))
+                if strokeBounds.contains(where: { $0.intersects(rect) }) {
+                    autoreleasepool {
+                        var ink: UIImage?
+                        // PKDrawing.image rispetta la modalità scura: forziamo la resa chiara (carta bianca).
+                        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+                            ink = drawing.image(from: rect, scale: scale)
+                        }
+                        ink?.draw(in: rect)
+                    }
+                }
+                x += tile
+            }
+            y += tile
+        }
+    }
+
+    /// Scala che mantiene un'esportazione entro `maxPixels` pixel complessivi.
+    private static func cappedScale(_ preferred: CGFloat, for size: CGSize, maxPixels: CGFloat) -> CGFloat {
+        let area = max(1, size.width * size.height)
+        return max(0.5, min(preferred, (maxPixels / area).squareRoot()))
     }
 
     /// Disegna un'immagine con rotazione, angoli arrotondati e ombra.
@@ -121,17 +152,29 @@ enum NoteRenderer {
         return CGRect(x: content.minX - 60, y: content.minY - 60, width: width, height: width * aspect)
     }
 
+    /// Area esportata di un foglio infinito: solo il contenuto (più un piccolo margine), mai tutto il foglio caricato.
+    private static func infiniteExportRegion(for snapshot: Snapshot) -> CGRect {
+        let content = contentBounds(of: snapshot)
+        guard !content.isNull else {
+            return CGRect(origin: CGPoint(x: NoteCanvasView.infiniteChunk, y: NoteCanvasView.infiniteChunk), size: PageLayout.pageSize)
+        }
+        return content.insetBy(dx: -48, dy: -48).integral
+    }
+
     /// Pagine da esportare: quelle del documento, oppure un'unica pagina attorno al contenuto del foglio infinito.
     private static func exportPages(for snapshot: Snapshot) -> [CGRect] {
         if !snapshot.layout.pageRects.isEmpty { return snapshot.layout.pageRects }
-        let content = contentBounds(of: snapshot)
-        return [content.isNull ? CGRect(origin: .zero, size: PageLayout.pageSize) : content.insetBy(dx: -48, dy: -48)]
+        return [infiniteExportRegion(for: snapshot)]
     }
 
     private static func drawPages(of snapshot: Snapshot, in context: UIGraphicsPDFRendererContext) {
         for page in exportPages(for: snapshot) {
             context.beginPage(withBounds: CGRect(origin: .zero, size: page.size), pageInfo: [:])
-            draw(snapshot, region: page, in: context.cgContext, inkScale: 3, shadows: false)
+            // Le pagine A4 restano a 3×; un foglio infinito molto esteso scende di risoluzione (fino a ~60 Mpx).
+            let scale = snapshot.layout.isInfinite ? cappedScale(3, for: page.size, maxPixels: 60_000_000) : 3
+            autoreleasepool {
+                draw(snapshot, region: page, in: context.cgContext, inkScale: scale, shadows: false)
+            }
         }
     }
 
@@ -185,16 +228,17 @@ enum NoteRenderer {
         if snapshot.layout.pageRects.indices.contains(pageIndex) {
             region = snapshot.layout.pageRects[pageIndex]
         } else {
-            let content = contentBounds(of: snapshot)
-            region = content.isNull ? CGRect(origin: .zero, size: PageLayout.pageSize) : content.insetBy(dx: -40, dy: -40)
+            region = infiniteExportRegion(for: snapshot)
         }
+        // Al massimo ~36 Mpx: anche un foglio infinito molto esteso si esporta in pochi istanti.
+        let scale = cappedScale(2, for: region.size, maxPixels: 36_000_000)
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
+        format.scale = scale
         format.opaque = true
         let image = UIGraphicsImageRenderer(size: region.size, format: format).image { context in
             UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: region.size))
-            draw(snapshot, region: region, in: context.cgContext, inkScale: 2, shadows: false)
+            draw(snapshot, region: region, in: context.cgContext, inkScale: scale, shadows: false)
         }
         let url = exportURL(title: title, ext: "png")
         guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
@@ -204,7 +248,7 @@ enum NoteRenderer {
 
     private static func exportURL(title: String, ext: String) -> URL {
         let safe = title.components(separatedBy: CharacterSet(charactersIn: "/\\?%*|\"<>:")).joined(separator: "-")
-        let name = (safe.trimmingCharacters(in: .whitespaces).isEmpty ? "Nota" : safe)
+        let name = (safe.trimmingCharacters(in: .whitespaces).isEmpty ? String(localized: "Nota") : safe)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Export", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent(name).appendingPathExtension(ext)

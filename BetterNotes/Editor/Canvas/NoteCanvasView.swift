@@ -18,6 +18,10 @@ final class BNCanvasView: PKCanvasView {
     }()
 
     override var undoManager: UndoManager? { silentUndoManager }
+
+    /// Niente barra di sistema delle azioni (annulla, copia, incolla…) in cima allo schermo:
+    /// copre il titolo della nota. L'editor mostra la propria barra, più in basso.
+    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
 }
 
 /// Vista in coordinate documento, scalata insieme allo zoom della tela.
@@ -130,6 +134,11 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     // Gesti e strumenti
     private let twoFingerTap = UITapGestureRecognizer()
     private let threeFingerTap = UITapGestureRecognizer()
+    /// Ultimo istante in cui la tela è stata zoomata o trascinata: un pizzico rapido con poco
+    /// movimento non deve essere scambiato per un tocco a due dita (annulla).
+    private var lastViewportGestureTime: CFTimeInterval = 0
+    /// Durante l'animazione di "Inquadra" il foglio infinito non deve crescere (sposterebbe la destinazione).
+    private var isAnimatingViewport = false
     let inkGesture = InkInputGesture()
     private(set) lazy var inkEngine = LiveInkEngine(host: self)
     private(set) var settings = EditorSettings()
@@ -249,6 +258,8 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
             tap.delegate = gestureCoordinator
             canvas.addGestureRecognizer(tap)
         }
+        canvas.pinchGestureRecognizer?.addTarget(self, action: #selector(viewportGestureDidChange(_:)))
+        canvas.panGestureRecognizer.addTarget(self, action: #selector(viewportGestureDidChange(_:)))
 
         // Motore d'inchiostro.
         inkGesture.engine = inkEngine
@@ -326,6 +337,21 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
         }
     }
 
+    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // La tela fa da first responder: così la barra delle azioni di sistema resta disattivata.
+        if window != nil {
+            DispatchQueue.main.async { [weak self] in self?.claimFirstResponder() }
+        }
+    }
+
+    /// Dopo un alert (es. Rinomina) il first responder si perde: lo riprendiamo al primo uso della tela.
+    private func claimFirstResponder() {
+        if window != nil, !canvas.isFirstResponder { _ = canvas.becomeFirstResponder() }
+    }
+
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
         updateInsets()
@@ -394,28 +420,42 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
         canvas.contentOffset = CGPoint(x: origin.x * zoom - canvas.contentInset.left, y: origin.y * zoom - canvas.contentInset.top)
     }
 
-    /// Inquadra tutto il contenuto della nota (utile per orientarsi nel foglio infinito).
-    func showAllContent() {
+    /// Foglio infinito: centra la vista sul contenuto, riducendo lo zoom se non entra tutto
+    /// (mai oltre il 100%). Senza contenuto torna alla vista predefinita.
+    func centerOnContent() {
+        expandInfiniteCanvasIfNeeded()
         let content = contentBounds
         guard !content.isNull else {
-            UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-                self.canvas.zoomScale = self.fitScale
-                self.scrollToContentStart()
-            }
+            resetToDefaultView()
             return
         }
         let target = content.insetBy(dx: -80, dy: -80)
         let availableWidth = canvas.bounds.width
-        let availableHeight = canvas.bounds.height - canvas.contentInset.top - canvas.contentInset.bottom
-        let zoom = min(max(min(availableWidth / target.width, availableHeight / target.height), canvas.minimumZoomScale), 1.5)
-        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-            self.canvas.zoomScale = zoom
-            self.updateContentGeometry()
+        let availableHeight = canvas.bounds.height - safeAreaInsets.top - 70 - safeAreaInsets.bottom - 90
+        let fit = min(availableWidth / target.width, availableHeight / target.height)
+        let zoom = min(max(fit, canvas.minimumZoomScale), fitScale)
+        animateViewport(zoom: zoom) {
             self.canvas.contentOffset = CGPoint(
                 x: target.midX * zoom - availableWidth / 2,
                 y: target.midY * zoom - availableHeight / 2 - self.canvas.contentInset.top
             )
+        }
+    }
+
+    /// Foglio infinito: torna alla vista con cui si apre la nota (zoom 100%, inizio del contenuto).
+    func resetToDefaultView() {
+        expandInfiniteCanvasIfNeeded()
+        animateViewport(zoom: fitScale) { self.scrollToContentStart() }
+    }
+
+    private func animateViewport(zoom: CGFloat, position: @escaping () -> Void) {
+        isAnimatingViewport = true
+        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+            self.canvas.zoomScale = zoom
+            self.updateContentGeometry()
+            position()
         } completion: { _ in
+            self.isAnimatingViewport = false
             self.expandInfiniteCanvasIfNeeded()
         }
     }
@@ -485,7 +525,7 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     /// direzione, il foglio si allarga. Se cresce a sinistra o in alto, contenuto e vista vengono traslati
     /// insieme, così l'utente non vede alcun salto.
     func expandInfiniteCanvasIfNeeded() {
-        guard layout.isInfinite, !isToolActive, !isExpandingCanvas, !isApplyingState,
+        guard layout.isInfinite, !isToolActive, !isExpandingCanvas, !isApplyingState, !isAnimatingViewport,
               !canvas.isZooming, canvas.bounds.width > 1 else { return }
         isExpandingCanvas = true
         defer { isExpandingCanvas = false }
@@ -566,6 +606,7 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     // MARK: - Inchiostro (motore BetterNotes)
 
     func liveInkDidBegin() {
+        claimFirstResponder()
         isToolActive = true
         controller?.userDidBeginDrawing()
     }
@@ -606,6 +647,7 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     }
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        claimFirstResponder()
         toolSession += 1
         isToolActive = true
         controller?.userDidBeginDrawing()
@@ -698,24 +740,61 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
         isToolActive = false
     }
 
+    @objc private func viewportGestureDidChange(_ gesture: UIGestureRecognizer) {
+        if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
+            lastViewportGestureTime = CACurrentMediaTime()
+        }
+        if gesture.state == .began { claimFirstResponder() }
+    }
+
+    /// Vero se le dita hanno appena zoomato o spostato la tela: in quel caso non è un tocco.
+    private var viewportGestureJustHappened: Bool {
+        canvas.isZooming || canvas.isZoomBouncing || CACurrentMediaTime() - lastViewportGestureTime < 0.3
+    }
+
     @objc private func handleTwoFingerTap() {
-        guard settings.twoFingerUndo, canUndo else { return }
+        guard settings.twoFingerUndo, canUndo, !viewportGestureJustHappened else { return }
         cancelActiveStroke()
         DispatchQueue.main.async { [weak self] in
             guard let self, self.canUndo else { return }
             self.undo()
-            self.controller?.showToast("Annullato", systemImage: "arrow.uturn.backward")
+            self.controller?.showToast(String(localized: "Annullato"), systemImage: "arrow.uturn.backward")
         }
     }
 
     @objc private func handleThreeFingerTap() {
+        guard !viewportGestureJustHappened else { return }
+        // Come il tocco a tre dita di sistema, mostra la barra delle azioni (sotto il titolo).
+        controller?.showEditActions()
         guard settings.threeFingerRedo, canRedo else { return }
         cancelActiveStroke()
         DispatchQueue.main.async { [weak self] in
             guard let self, self.canRedo else { return }
             self.redo()
-            self.controller?.showToast("Ripristinato", systemImage: "arrow.uturn.forward")
+            self.controller?.showToast(String(localized: "Ripristinato"), systemImage: "arrow.uturn.forward")
         }
+    }
+
+    // MARK: - Azioni di modifica (taglia, copia, incolla della selezione del lazo)
+
+    /// Il responder che riceverebbe le azioni di modifica (es. la selezione del lazo di PencilKit).
+    private func editTarget(for action: Selector) -> UIResponder? {
+        let responder = UIResponder.bnCurrentFirstResponder() ?? canvas
+        // Solo la tela (o le sue viste interne): le viste SwiftUI attorno non c'entrano.
+        guard let target = responder.target(forAction: action, withSender: nil) as? UIView,
+              target.isDescendant(of: canvas) else { return nil }
+        return target
+    }
+
+    func canPerformEditAction(_ action: Selector) -> Bool {
+        editTarget(for: action) != nil
+    }
+
+    @discardableResult
+    func performEditAction(_ action: Selector) -> Bool {
+        guard let target = editTarget(for: action) else { return false }
+        target.perform(action, with: nil)
+        return true
     }
 
     // MARK: - Apple Pencil

@@ -21,6 +21,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.paletteDock) private var paletteDock = PaletteDock.bottom.rawValue
     @AppStorage(SettingsKey.paletteSnapToEdges) private var paletteSnapToEdges = true
     @AppStorage(SettingsKey.paletteY) private var paletteY = -1.0
+    @AppStorage(SettingsKey.infiniteRecenter) private var infiniteRecenter = InfiniteRecenterMode.content.rawValue
+    @Environment(\.openURL) private var openURL
 
     @State private var confirmEmptyTrash = false
 
@@ -39,7 +41,7 @@ struct SettingsView: View {
                         .background(Theme.accent.gradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     VStack(alignment: .leading, spacing: 4) {
                         Text("BetterNotes").font(.serif(.title2, weight: .bold))
-                        Text("\(activeNotes == 1 ? "1 nota" : "\(activeNotes) note") · \(activeFolders == 1 ? "1 cartella" : "\(activeFolders) cartelle")")
+                        Text(verbatim: "\(Counts.notes(activeNotes)) · \(Counts.folders(activeFolders))")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -61,6 +63,23 @@ struct SettingsView: View {
             }
 
             Section {
+                LabeledContent {
+                    Text(verbatim: currentLanguageName)
+                } label: {
+                    Label("Lingua dell'app", systemImage: "globe")
+                }
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                } label: {
+                    Label("Cambia nelle Impostazioni di iPadOS", systemImage: "arrow.up.forward.app")
+                }
+            } header: {
+                Text("Lingua")
+            } footer: {
+                Text("BetterNotes segue la lingua del dispositivo. Per usarne un'altra solo in questa app, apri Impostazioni › App › BetterNotes › Lingua.")
+            }
+
+            Section {
                 Toggle(isOn: $pencilOnly) {
                     Label("Favorisci Apple Pencil", systemImage: "applepencil.tip")
                 }
@@ -77,7 +96,7 @@ struct SettingsView: View {
                 Text("Con “Favorisci Apple Pencil” attivo, la Pencil scrive e le dita scorrono la pagina. Su Apple Pencil Pro, lo squeeze apre e chiude il pannello strumenti.")
             }
 
-            Section("Gesti e tela") {
+            Section {
                 Toggle(isOn: $twoFingerUndo) { Label("Undo con due dita", systemImage: "arrow.uturn.backward") }
                 Toggle(isOn: $threeFingerRedo) { Label("Redo con tre dita", systemImage: "arrow.uturn.forward") }
                 Toggle(isOn: $lockZoom) { Label("Blocca zoom", systemImage: "lock") }
@@ -92,6 +111,17 @@ struct SettingsView: View {
                 } label: {
                     Label("Riposiziona il pannello strumenti", systemImage: "rectangle.bottomhalf.inset.filled")
                 }
+                Picker(selection: $infiniteRecenter) {
+                    ForEach(InfiniteRecenterMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                } label: {
+                    Label("Tasto Inquadra", systemImage: "viewfinder")
+                }
+            } header: {
+                Text("Gesti e tela")
+            } footer: {
+                Text("Il tasto Inquadra, in alto a destra nei fogli infiniti, può centrare la vista su tutto ciò che hai scritto oppure riportarla alla vista iniziale, con lo zoom al 100%.")
             }
 
             Section {
@@ -125,7 +155,7 @@ struct SettingsView: View {
             }
 
             Section {
-                LabeledContent("Eliminazione automatica", value: "dopo \(LibraryActions.trashRetentionDays) giorni")
+                LabeledContent("Eliminazione automatica", value: String(localized: "dopo \(LibraryActions.trashRetentionDays) giorni"))
                 LabeledContent("Elementi nel cestino", value: "\(trashedCount)")
                 Button("Svuota cestino", role: .destructive) { confirmEmptyTrash = true }
                     .disabled(trashedCount == 0)
@@ -150,13 +180,19 @@ struct SettingsView: View {
         }
     }
 
+    private var currentLanguageName: String {
+        let code = Bundle.main.preferredLocalizations.first ?? "it"
+        let name = Locale.current.localizedString(forLanguageCode: code) ?? code
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
     private var statusText: String {
-        if !BuildFeatures.iCloudSync { return "Non disponibile in questa build" }
+        if !BuildFeatures.iCloudSync { return String(localized: "Non disponibile in questa build") }
         if persistence.isCloudSyncActive {
-            return persistence.iCloudAccountAvailable ? "Sincronizzazione attiva" : "Accedi a iCloud per sincronizzare"
+            return persistence.iCloudAccountAvailable ? String(localized: "Sincronizzazione attiva") : String(localized: "Accedi a iCloud per sincronizzare")
         }
-        if iCloudSync, persistence.cloudError != nil { return "Non disponibile" }
-        return "Solo su questo iPad"
+        if iCloudSync, persistence.cloudError != nil { return String(localized: "Non disponibile") }
+        return String(localized: "Solo su questo iPad")
     }
 
     private var statusColor: Color {

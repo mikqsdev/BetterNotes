@@ -89,8 +89,8 @@ struct QuickSettingsView: View {
 }
 
 private struct QuickRow: View {
-    let title: String
-    let subtitle: String?
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey?
     let systemImage: String
 
     var body: some View {

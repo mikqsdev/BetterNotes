@@ -67,7 +67,7 @@ struct RecentsView: View {
                 older.append(note)
             }
         }
-        return [("Oggi e ieri", today), ("Questa settimana", week), ("Questo mese", month), ("Meno recenti", older)]
+        return [(String(localized: "Oggi e ieri"), today), (String(localized: "Questa settimana"), week), (String(localized: "Questo mese"), month), (String(localized: "Meno recenti"), older)]
             .filter { !$0.1.isEmpty }
     }
 
@@ -80,7 +80,7 @@ struct RecentsView: View {
                 }
                 ForEach(groups, id: \.0) { title, items in
                     VStack(alignment: .leading, spacing: 18) {
-                        SectionHeader(title: title, count: items.count)
+                        SectionHeader(verbatim: title, count: items.count)
                         LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 30) {
                             ForEach(items) { NoteTile(note: $0) }
                         }
@@ -157,7 +157,7 @@ struct TrashView: View {
                     ForEach(trashedNotes) { note in
                         TrashRow(
                             title: note.displayTitle,
-                            subtitle: note.folder.map { "Da “\($0.name)”" } ?? "Dalla Libreria",
+                            subtitle: note.folder.map { String(localized: "Da “\($0.name)”") } ?? String(localized: "Dalla Libreria"),
                             deletedAt: note.deletedAt
                         ) {
                             NoteThumbnail(note: note).frame(width: 44)

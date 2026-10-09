@@ -18,6 +18,8 @@ struct InkSample {
 final class InkInputGesture: UIGestureRecognizer {
     weak var engine: LiveInkEngine?
     var acceptsFinger = false
+    /// Ultima parola dell'host su un nuovo tratto (es. no durante lo spostamento del foglio o fuori dalla pagina).
+    var shouldAcceptTouch: ((UITouch) -> Bool)?
     private var trackedTouch: UITouch?
 
     private func accepts(_ touch: UITouch) -> Bool {
@@ -35,7 +37,8 @@ final class InkInputGesture: UIGestureRecognizer {
             touches.filter { $0 !== tracked }.forEach { ignore($0, for: event) }
             return
         }
-        guard touches.count == 1, let touch = touches.first, accepts(touch), let view else {
+        guard touches.count == 1, let touch = touches.first, accepts(touch), let view,
+              MainActor.assumeIsolated({ shouldAcceptTouch?(touch) ?? true }) else {
             touches.forEach { ignore($0, for: event) }
             return
         }
@@ -86,11 +89,15 @@ final class LiveInkEngine {
     private var zoom: CGFloat = 1
     private var tool = ToolState()
     private(set) var isActive = false
+    /// Pagina in cui è iniziato il tratto (fogli impaginati): l'inchiostro non esce dal foglio.
+    private var clipRect: CGRect?
+    private let activeMask = CAShapeLayer()
 
     init(host: NoteCanvasView) {
         self.host = host
         previewContainer.masksToBounds = false
         configure(activeLayer)
+        activeMask.actions = ["path": NSNull(), "frame": NSNull(), "bounds": NSNull(), "position": NSNull()]
         previewContainer.addSublayer(activeLayer)
     }
 
@@ -126,6 +133,8 @@ final class LiveInkEngine {
         lastRaw = first
         startTime = first.time
         startDate = Date()
+        clipRect = host.inkClipRect(at: first.location)
+        activeLayer.mask = clipRect == nil ? nil : activeMask
         isActive = true
         host.liveInkDidBegin()
         updatePreview(predicted: [])
@@ -156,6 +165,11 @@ final class LiveInkEngine {
         configure(pending)
         pending.path = activeLayer.path
         pending.fillColor = activeLayer.fillColor
+        if clipRect != nil {
+            let mask = CAShapeLayer()
+            mask.path = activeMask.path
+            pending.mask = mask
+        }
         previewContainer.addSublayer(pending)
         pendingLayers.append((pending, CACurrentMediaTime()))
         activeLayer.path = nil
@@ -321,7 +335,18 @@ final class LiveInkEngine {
             )
         }
         let path = PKStrokePath(controlPoints: controlPoints, creationDate: startDate)
-        return PKStroke(ink: PKInk(tool.kind.inkType, color: inkColor), path: path)
+        let ink = PKInk(tool.kind.inkType, color: inkColor)
+        // Maschera solo se il tratto sborda davvero dalla pagina.
+        if let clipRect, !clipRect.contains(Self.bounds(of: points, padding: tool.inkWidth * 2)) {
+            return PKStroke(ink: ink, path: path, transform: .identity, mask: UIBezierPath(rect: clipRect))
+        }
+        return PKStroke(ink: ink, path: path)
+    }
+
+    private static func bounds(of samples: [InkSample], padding: CGFloat) -> CGRect {
+        let xs = samples.map(\.location.x), ys = samples.map(\.location.y)
+        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else { return .null }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY).insetBy(dx: -padding, dy: -padding)
     }
 
     // MARK: - Anteprima
@@ -335,6 +360,11 @@ final class LiveInkEngine {
         if tool.kind == .marker { alpha *= 0.45 }
         if tool.kind == .pencil { alpha *= 0.8 }
         activeLayer.fillColor = tool.uiColor.withAlphaComponent(alpha).cgColor
+        if let clipRect {
+            let a = host.screenPoint(fromDocument: clipRect.origin)
+            let b = host.screenPoint(fromDocument: CGPoint(x: clipRect.maxX, y: clipRect.maxY))
+            activeMask.path = CGPath(rect: CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y), transform: nil)
+        }
         activeLayer.path = Self.ribbonPath(points: points, radii: radii, squareCaps: tool.kind == .marker)
     }
 

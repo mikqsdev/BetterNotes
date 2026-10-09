@@ -46,7 +46,9 @@ final class EditorController: Identifiable {
         }
     }
 
-    var isPaletteExpanded = false
+    var isPaletteExpanded = false {
+        didSet { canvasView.setPaletteExpanded(isPaletteExpanded) }
+    }
     var canUndo = false
     var canRedo = false
     var isEditingImages = false
@@ -306,8 +308,13 @@ final class EditorController: Identifiable {
 
     func insertImage(data: Data) {
         guard let image = UIImage(data: data) else { return }
+        insertImage(image, at: nil)
+    }
+
+    /// `point` in coordinate documento (es. dove l'immagine è stata trascinata da un'altra app).
+    func insertImage(_ image: UIImage, at point: CGPoint?) {
         let prepared = Self.prepareImage(image)
-        canvasView.insertImage(data: prepared.data, pixelSize: prepared.size)
+        canvasView.insertImage(data: prepared.data, pixelSize: prepared.size, at: point)
         isPaletteExpanded = false
     }
 

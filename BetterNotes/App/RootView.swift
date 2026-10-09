@@ -137,6 +137,7 @@ private struct SidebarView: View {
         .overlay { SidebarDragGhost(folders: folders) }
         .scrollDisabled(dragModel.draggingID != nil)
         .environment(dragModel)
+        .onAppear { dragModel.select = { selection = .folder($0) } }
         .sensoryFeedback(.selection, trigger: dragModel.target?.id)
         .sensoryFeedback(.impact(weight: .medium), trigger: dragModel.draggingID) { _, new in new != nil }
         .navigationTitle("BetterNotes")

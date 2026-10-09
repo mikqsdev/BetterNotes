@@ -137,6 +137,11 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     /// Ultimo istante in cui la tela è stata zoomata o trascinata: un pizzico rapido con poco
     /// movimento non deve essere scambiato per un tocco a due dita (annulla).
     private var lastViewportGestureTime: CFTimeInterval = 0
+    /// Mentre le dita spostano o zoomano il foglio la Pencil non scrive (solo durante lo spostamento).
+    private var isPencilSuspended = false
+    /// Pannello strumenti aperto: un tocco del dito sulla tela lo chiude (e non scrive).
+    private(set) var isPaletteExpanded = false
+    private let dismissPaletteTap = UITapGestureRecognizer()
     /// Durante l'animazione di "Inquadra" il foglio infinito non deve crescere (sposterebbe la destinazione).
     private var isAnimatingViewport = false
     let inkGesture = InkInputGesture()
@@ -261,9 +266,19 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
         canvas.pinchGestureRecognizer?.addTarget(self, action: #selector(viewportGestureDidChange(_:)))
         canvas.panGestureRecognizer.addTarget(self, action: #selector(viewportGestureDidChange(_:)))
 
+        // Tocco del dito fuori dal pannello strumenti aperto: lo chiude.
+        dismissPaletteTap.allowedTouchTypes = direct
+        dismissPaletteTap.cancelsTouchesInView = false
+        dismissPaletteTap.isEnabled = false
+        dismissPaletteTap.delegate = gestureCoordinator
+        dismissPaletteTap.addTarget(self, action: #selector(handleDismissPaletteTap))
+        canvas.addGestureRecognizer(dismissPaletteTap)
+        setupImageDrop()
+
         // Motore d'inchiostro.
         inkGesture.engine = inkEngine
         inkGesture.delegate = gestureCoordinator
+        inkGesture.shouldAcceptTouch = { [weak self] touch in self?.inkShouldAccept(touch) ?? true }
         canvas.addGestureRecognizer(inkGesture)
         layer.addSublayer(inkEngine.previewContainer)
 
@@ -287,7 +302,7 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     }
 
     private func gesturesRecognizeSimultaneously(_ first: UIGestureRecognizer, _ second: UIGestureRecognizer) -> Bool {
-        let taps: [UIGestureRecognizer] = [twoFingerTap, threeFingerTap, lassoImageTap]
+        let taps: [UIGestureRecognizer] = [twoFingerTap, threeFingerTap, lassoImageTap, dismissPaletteTap]
         if taps.contains(where: { $0 === first || $0 === second }) { return true }
         // L'inchiostro convive con pan e pizzico: se arriva un secondo dito il tratto viene annullato
         // e la tela scorre/zooma normalmente.
@@ -303,8 +318,9 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     func updateInputMode() {
         let live = usesLiveInk
         inkGesture.isEnabled = live
-        inkGesture.acceptsFinger = !settings.pencilOnly
-        canvas.drawingGestureRecognizer.isEnabled = !live && !isEditingImages
+        // A pannello aperto il dito non scrive: il suo tocco serve a chiudere il pannello.
+        inkGesture.acceptsFinger = !settings.pencilOnly && !isPaletteExpanded
+        canvas.drawingGestureRecognizer.isEnabled = !live && !isEditingImages && !isPencilSuspended
         lassoImageTap.isEnabled = tool.kind == .lasso && !isEditingImages
 
         let pan = canvas.panGestureRecognizer
@@ -635,6 +651,7 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard !isApplyingState else { return }
         guard canvasView.drawing != lastState.drawing else { return }
+        clipNewPencilKitStrokesToPages()
         if lastCommittedSession == toolSession {
             // Stesso gesto (o aggiornamento tardivo della Pencil): nessuna nuova voce di cronologia.
             lastState = currentState
@@ -744,7 +761,54 @@ final class NoteCanvasView: UIView, PKCanvasViewDelegate, UIPencilInteractionDel
         if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
             lastViewportGestureTime = CACurrentMediaTime()
         }
-        if gesture.state == .began { claimFirstResponder() }
+        if gesture.state == .began {
+            claimFirstResponder()
+            // Toccare la tela fuori dal pannello aperto lo chiude, anche quando si inizia a scorrere.
+            if isPaletteExpanded { controller?.isPaletteExpanded = false }
+        }
+        // Un tratto già iniziato non viene interrotto: si bloccano solo quelli nuovi.
+        let suspend = isViewportGestureActive && !isToolActive
+        if suspend != isPencilSuspended, suspend || !isViewportGestureActive {
+            isPencilSuspended = suspend
+            updateInputMode()
+        }
+    }
+
+    /// Le dita stanno spostando o zoomando il foglio in questo momento.
+    private var isViewportGestureActive: Bool {
+        let moving: (UIGestureRecognizer?) -> Bool = { [.began, .changed].contains($0?.state) }
+        return moving(canvas.panGestureRecognizer) || moving(canvas.pinchGestureRecognizer)
+    }
+
+    /// Può iniziare un tratto con questo tocco?
+    private func inkShouldAccept(_ touch: UITouch) -> Bool {
+        if isViewportGestureActive { return false }
+        if touch.type == .direct, isPaletteExpanded { return false }
+        let zoom = max(canvas.zoomScale, 0.01)
+        let point = touch.location(in: canvas)
+        return layout.isInfinite || pageRect(containing: CGPoint(x: point.x / zoom, y: point.y / zoom)) != nil
+    }
+
+    /// Fogli impaginati: la pagina che contiene il punto (nil se il punto è fuori da ogni pagina).
+    func pageRect(containing point: CGPoint) -> CGRect? {
+        layout.pageRects.first { $0.contains(point) }
+    }
+
+    /// Area a cui limitare un tratto che inizia in `point` (nil nel foglio infinito).
+    func inkClipRect(at point: CGPoint) -> CGRect? {
+        layout.isInfinite ? nil : pageRect(containing: point)
+    }
+
+    func setPaletteExpanded(_ expanded: Bool) {
+        guard expanded != isPaletteExpanded else { return }
+        isPaletteExpanded = expanded
+        dismissPaletteTap.isEnabled = expanded
+        updateInputMode()
+    }
+
+    @objc private func handleDismissPaletteTap() {
+        guard isPaletteExpanded else { return }
+        controller?.isPaletteExpanded = false
     }
 
     /// Vero se le dita hanno appena zoomato o spostato la tela: in quel caso non è un tocco.

@@ -225,14 +225,22 @@ extension NoteCanvasView {
         return target
     }
 
-    func insertImage(data: Data, pixelSize: CGSize) {
+    /// Inserisce un'immagine al centro della vista, oppure centrata su `point` (es. dove è stata trascinata).
+    func insertImage(data: Data, pixelSize: CGSize, at point: CGPoint? = nil) {
         let target = insertionArea()
-        let maxSide = min(target.width, target.height) * 0.6
+        let maxSide = min(target.width, target.height) * (point == nil ? 0.6 : 0.45)
         let aspect = max(0.05, pixelSize.width / max(1, pixelSize.height))
         let size = aspect >= 1
             ? CGSize(width: maxSide, height: maxSide / aspect)
             : CGSize(width: maxSide * aspect, height: maxSide)
-        let frame = CGRect(x: target.midX - size.width / 2, y: target.midY - size.height / 2, width: size.width, height: size.height)
+        var center = point ?? CGPoint(x: target.midX, y: target.midY)
+        if let point, !layout.isInfinite {
+            // Nei fogli impaginati l'immagine resta dentro la pagina più vicina al punto di rilascio.
+            let page = pageRect(containing: point) ?? layout.pageRects[layout.pageIndex(nearY: point.y)]
+            center.x = min(max(center.x, page.minX + size.width / 2), page.maxX - size.width / 2)
+            center.y = min(max(center.y, page.minY + size.height / 2), page.maxY - size.height / 2)
+        }
+        let frame = CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
         addNewImage(CanvasImage(id: UUID(), frame: frame, data: data))
     }
 

@@ -17,6 +17,8 @@ final class SidebarDragModel {
     var target: (id: UUID, zone: Zone)?
     /// Cornice globale della barra laterale (le celle della List non condividono spazi di coordinate con nome).
     var containerFrame: CGRect = .zero
+    /// Apre una cartella (il gesto di riordino impedisce alla List di selezionare la riga da sola).
+    @ObservationIgnored var select: ((UUID) -> Void)?
 }
 
 /// Albero delle cartelle nella barra laterale.
@@ -80,7 +82,6 @@ private struct SidebarFolderRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .opacity(isDragged ? 0.35 : 1)
-        .tag(SidebarItem.folder(folder.id))
         .background {
             if zone == .into || isDropTargeted {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -102,33 +103,36 @@ private struct SidebarFolderRow: View {
             drag.rowFrames[folder.id] = frame
         }
         .onDisappear { drag.rowFrames[folder.id] = nil }
-        .gesture(reorderGesture)
+        // La List non seleziona da sola le righe che hanno un gesto proprio: il tocco apre la cartella,
+        // la pressione prolungata (poi trascinamento) la riordina.
+        .onTapGesture { drag.select?(folder.id) }
+        .simultaneousGesture(reorderGesture)
         // Note trascinate dalla Libreria sopra una cartella della barra laterale.
         .dropDestination(for: String.self) { items, _ in
             let moved = LibraryActions.handleDrop(items.filter { !$0.hasSuffix(folder.id.uuidString) }, into: folder, context: context)
             if moved { expanded.insert(folder.id) }
             return moved
         } isTargeted: { isDropTargeted = $0 }
+        .tag(SidebarItem.folder(folder.id))
     }
 
     private var reorderGesture: some Gesture {
         LongPressGesture(minimumDuration: 0.35)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
             .onChanged { value in
-                switch value {
-                case .first(true):
-                    if drag.draggingID == nil {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            drag.draggingID = folder.id
-                            drag.location = drag.rowFrames[folder.id].map { CGPoint(x: $0.midX, y: $0.midY) } ?? .zero
-                        }
+                // `.first(true)` arriva già al primo contatto: l'etichetta compare solo quando la pressione
+                // prolungata è riuscita (fase `.second`), così un semplice tocco non la mostra.
+                guard case .second(true, let dragValue) = value else { return }
+                if drag.draggingID == nil {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        drag.draggingID = folder.id
+                        drag.location = dragValue?.location
+                            ?? drag.rowFrames[folder.id].map { CGPoint(x: $0.midX, y: $0.midY) } ?? .zero
                     }
-                case .second(true, let dragValue?):
-                    drag.draggingID = folder.id
+                }
+                if let dragValue {
                     drag.location = dragValue.location
                     updateTarget(at: dragValue.location)
-                default:
-                    break
                 }
             }
             .onEnded { _ in
